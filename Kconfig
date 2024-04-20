@@ -1,0 +1,15 @@
+menu "Logger Wifi Configuration"
+    config WIFI_TASK_STACK_SIZE
+        int "Wifi Task stack size in bytes"
+        default 5120
+    config SNTP_TIME_SERVER
+        string "SNTP server name"
+        default "ee.pool.ntp.org"
+        help
+            Hostname of the main SNTP server.
+    config SNTP_TIME_ZONE
+        int "SNTP time zone"
+        default 2
+        help
+            Time zone in hours.
+endmenu
