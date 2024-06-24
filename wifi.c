@@ -309,6 +309,7 @@ int wifi_set_mode(int mode) {
 }
 
 static int nvs_init() {
+    ESP_LOGI(TAG, "[%s]", __FUNCTION__);
     int ret = ESP_OK;
         ret = nvs_flash_init();
     if (ret == ESP_ERR_NVS_NO_FREE_PAGES ||
@@ -332,17 +333,20 @@ void wifi_init() {
     if(!wifi_context.s_nvs_initialized)
         nvs_init();
 
+    ESP_LOGI(TAG, "[%s] init netif...", __FUNCTION__);
     esp_err_t err = esp_netif_init();
     if (err != ERR_OK) {
         ESP_LOGE(TAG, "esp_netif_init failed: %s", esp_err_to_name(err));
         goto end;
     }
+    ESP_LOGI(TAG, "[%s] create event group...", __FUNCTION__);
     s_wifi_event_group = xEventGroupCreate();
     if (s_wifi_event_group == 0) {
         ESP_LOGE(TAG, "xEventGroupCreate failed");
         goto end;
     }
     
+    ESP_LOGI(TAG, "[%s] register event handlers...", __FUNCTION__);
     err = esp_event_handler_instance_register(WIFI_EVENT, ESP_EVENT_ANY_ID, &wifi_event_handler, 0, &instance_wifi_id);
     if (err != ERR_OK) {
         ESP_LOGE(TAG, "esp_event_handler_instance_register failed: %s",
@@ -355,6 +359,7 @@ void wifi_init() {
         goto end;
     }
     
+    ESP_LOGI(TAG, "[%s] create default sta and ap...", __FUNCTION__);
     s_sta_netif = esp_netif_create_default_wifi_sta();
     s_ap_netif = esp_netif_create_default_wifi_ap();
     
@@ -375,7 +380,7 @@ void wifi_init() {
         ESP_LOGE(TAG, "esp_wifi_init failed: %s", esp_err_to_name(err));
         goto end;
     }
-    err = esp_wifi_set_storage(WIFI_STORAGE_RAM);
+    err = esp_wifi_set_storage(WIFI_STORAGE_FLASH);
     if (err != ERR_OK) {
         ESP_LOGE(TAG, "esp_wifi_set_storage failed: %s", esp_err_to_name(err));
         goto end;
