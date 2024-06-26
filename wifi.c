@@ -20,7 +20,7 @@
 
 #include "wifi.h"
 //#include "context.h"
-#include "sntp.h"
+//#include "sntp.h"
 
 #define TAG "wifi"
 #define IPIPSTR(a) a[0], a[1], a[2], a[3]

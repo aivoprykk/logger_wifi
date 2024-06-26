@@ -57,6 +57,14 @@ int wifi_set_config(const char *ap_ssid, const char *ap_password, const char *st
 int wifi_sta_set_config(const char *sta_ssid, const char *sta_password);
 int wifi_ap_set_config(const char *ap_ssid, const char *ap_password);
 
+// SNTP
+
+uint8_t set_time_zone(float offset);
+void initialize_sntp(float offset);
+int uninitialize_sntp(void);
+//void obtain_sntp_time(void);
+void print_local_time();
+
 #ifdef __cplusplus
 }
 #endif

@@ -10,7 +10,7 @@
 #include "esp_sntp.h"
 #include "esp_wifi.h"
 
-#include "sntp.h"
+#include "wifi.h"
 //#include "context.h"
 #include "logger_config.h"
 #include "logger_events.h"
