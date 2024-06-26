@@ -77,7 +77,7 @@ void Network_reset() {
 }
 
 static void wifi_event_handler(void *arg, esp_event_base_t event_base, int32_t event_id, void *event_data) {
-    ESP_LOGI(TAG, "[%s] base: %s event: %" PRId32 "\n", __FUNCTION__, event_base, event_id);
+    // ESP_LOGI(TAG, "[%s] base: %s event: %" PRId32 "\n", __FUNCTION__, event_base, event_id);
     if (event_base == WIFI_EVENT) {
         wifi_event_sta_connected_t *staconnevent;
         wifi_event_sta_disconnected_t *stadisconnevent;
@@ -85,88 +85,93 @@ static void wifi_event_handler(void *arg, esp_event_base_t event_base, int32_t e
         wifi_event_ap_stadisconnected_t *apstadisconnevent;
         switch (event_id) {
             case WIFI_EVENT_WIFI_READY:  // 0
-                ESP_LOGI(TAG, "[%s] WIFI_EVENT_WIFI_READY", __FUNCTION__);
+                ESP_LOGI(TAG, "[%s] WIFI_EVENT_WIFI_READY.", __FUNCTION__);
                 break;
             case WIFI_EVENT_SCAN_DONE:  // 1
-                ESP_LOGI(TAG, "[%s] WIFI_EVENT_SCAN_DONE", __FUNCTION__);
+                ESP_LOGI(TAG, "[%s] WIFI_EVENT_SCAN_DONE.", __FUNCTION__);
                 break;
             case WIFI_EVENT_STA_START:  // 2
-                ESP_LOGI(TAG, "[%s] WIFI_EVENT_STA_START", __FUNCTION__);
+                ESP_LOGI(TAG, "[%s] WIFI_EVENT_STA_START.", __FUNCTION__);
                 // xEventGroupSetBits(s_wifi_event_group, WIFI_CONNECTED_BIT);
                 break;
             case WIFI_EVENT_STA_STOP:  // 3
-                ESP_LOGI(TAG, "[%s] WIFI_EVENT_STA_STOP", __FUNCTION__);
+                ESP_LOGI(TAG, "[%s] WIFI_EVENT_STA_STOP.", __FUNCTION__);
                 xEventGroupSetBits(s_wifi_event_group, WIFI_FAIL_BIT);
                 break;
             case WIFI_EVENT_STA_CONNECTED:  // 4
                 staconnevent = (wifi_event_sta_connected_t *)event_data;
-                ESP_LOGI(TAG, "[%s] WIFI_EVENT_STA_CONNECTED ssid:%s", __FUNCTION__, staconnevent->ssid);
+                ESP_LOGI(TAG, "[%s] WIFI_EVENT_STA_CONNECTED. ssid:%s", __FUNCTION__, staconnevent->ssid);
                 // wifi_mode(1, 0);
                 //  xEventGroupSetBits(s_wifi_event_group, WIFI_CONNECTED_BIT);
                 break;
             case WIFI_EVENT_STA_DISCONNECTED:  // 5
                 stadisconnevent = (wifi_event_sta_disconnected_t *)event_data;
-                ESP_LOGI(TAG, "[%s] WIFI_EVENT_STA_DISCONNECTED, ssid:%s", __FUNCTION__, stadisconnevent->ssid);
+                ESP_LOGI(TAG, "[%s] WIFI_EVENT_STA_DISCONNECTED. ssid:%s", __FUNCTION__, stadisconnevent->ssid);
                 xEventGroupSetBits(s_wifi_event_group, WIFI_FAIL_BIT);
                 // vTaskDelay(50 / portTICK_PERIOD_MS);
                 if (wifi_context.s_sta_got_ip == 1)
                     wifi_sta_connect_scan();
                 break;
             case WIFI_EVENT_AP_START:
-                ESP_LOGI(TAG, "[%s] WIFI_EVENT_AP_START", __FUNCTION__);
+                ESP_LOGI(TAG, "[%s] WIFI_EVENT_AP_START.", __FUNCTION__);
                 // wifi_ap_start();
                 wifi_context.s_ap_connection = 1;
                 break;
             case WIFI_EVENT_AP_STOP:
-                ESP_LOGI(TAG, "[%s] WIFI_EVENT_AP_STOP", __FUNCTION__);
+                ESP_LOGI(TAG, "[%s] WIFI_EVENT_AP_STOP.", __FUNCTION__);
                 sprintf(wifi_context.ip_address, IPSTR, IPIPSTR(wifi_context.ap.ipv4_address));
                 wifi_context.s_ap_connection = 0;
-                break;
-            default:
                 break;
             case WIFI_EVENT_AP_STACONNECTED:
                 apstaconnevent = (wifi_event_ap_staconnected_t *)event_data;
                 //memcpy(wifi_context.m_context->mac, apstaconnevent->mac, 6);
-                ESP_LOGI(TAG, "[%s] WIFI_EVENT_AP_STACONNECTED " MACSTR " join, AID=%d", __FUNCTION__, MAC2STR(apstaconnevent->mac), apstaconnevent->aid);
+                ESP_LOGI(TAG, "[%s] WIFI_EVENT_AP_STACONNECTED. " MACSTR " join, AID=%d", __FUNCTION__, MAC2STR(apstaconnevent->mac), apstaconnevent->aid);
                 break;
             case WIFI_EVENT_AP_STADISCONNECTED:
                 apstadisconnevent = (wifi_event_ap_stadisconnected_t *)event_data;
-                ESP_LOGI(TAG, "[%s] WIFI_EVENT_AP_STADISCONNECTED " MACSTR " leave, AID=%d", __FUNCTION__, MAC2STR(apstadisconnevent->mac), apstadisconnevent->aid);
+                ESP_LOGI(TAG, "[%s] WIFI_EVENT_AP_STADISCONNECTED. " MACSTR " leave, AID=%d", __FUNCTION__, MAC2STR(apstadisconnevent->mac), apstadisconnevent->aid);
+                break;
+            case WIFI_EVENT_HOME_CHANNEL_CHANGE:
+                ESP_LOGI(TAG, "[%s] WIFI_EVENT_HOME_CHANNEL_CHANGE.", __FUNCTION__);
+                break;
+            case WIFI_EVENT_MAX:
+                ESP_LOGI(TAG, "[%s]  WIFI_EVENT_MAX.", __FUNCTION__);
+                break;
+            default:
                 break;
         }
-    } else if (event_id == WIFI_EVENT_STA_START) {
-        ESP_LOGI(TAG, "[%s] WIFI_EVENT_STA_START", __FUNCTION__);
-    } else if (event_id == WIFI_EVENT_STA_CONNECTED) {
-        ESP_LOGI(TAG, "[%s] WIFI_EVENT_STA_CONNECTED", __FUNCTION__);
-        // wifi_mode(1, 0);
-    } else if (event_base == IP_EVENT && event_id == IP_EVENT_STA_GOT_IP) {
-        ip_event_got_ip_t *event = (ip_event_got_ip_t *)event_data;
-        ESP_LOGI(TAG, "[%s] IP_EVENT_STA_GOT_IP: " IPSTR, __FUNCTION__, IP2STR(&event->ip_info.ip));
-        sprintf(wifi_context.ip_address, IPSTR, IP2STR(&event->ip_info.ip));
-        // s_retry_num = 0;
-        wifi_context.s_sta_got_ip = 1;
-        xEventGroupSetBits(s_wifi_event_group, WIFI_CONNECTED_BIT);
-    } else if (event_base == IP_EVENT && event_id == IP_EVENT_STA_LOST_IP) {
-        ip_event_got_ip_t *event = (ip_event_got_ip_t *)event_data;
-        ESP_LOGI(TAG, "[%s] IP_EVENT_STA_LOST_IP:" IPSTR, __FUNCTION__, IP2STR(&event->ip_info.ip));
-        sprintf(wifi_context.ip_address, IPSTR, 0, 0, 0, 0);
-        // s_retry_num = 0;
-        wifi_context.s_sta_got_ip = 0;
-        xEventGroupSetBits(s_wifi_event_group, WIFI_FAIL_BIT);
+    } else if (event_base == WIFI_EVENT) {
+        ip_event_got_ip_t *event;
+        switch(event_id) {
+            case IP_EVENT_STA_GOT_IP:
+                event = (ip_event_got_ip_t *)event_data;
+                ESP_LOGI(TAG, "[%s] IP_EVENT_STA_GOT_IP: " IPSTR, __FUNCTION__, IP2STR(&event->ip_info.ip));
+                sprintf(wifi_context.ip_address, IPSTR, IP2STR(&event->ip_info.ip));
+                // s_retry_num = 0;
+                wifi_context.s_sta_got_ip = 1;
+                xEventGroupSetBits(s_wifi_event_group, WIFI_CONNECTED_BIT);
+                break;
+            case IP_EVENT_STA_LOST_IP:
+                event = (ip_event_got_ip_t *)event_data;
+                ESP_LOGI(TAG, "[%s] IP_EVENT_STA_LOST_IP:" IPSTR, __FUNCTION__, IP2STR(&event->ip_info.ip));
+                sprintf(wifi_context.ip_address, IPSTR, 0, 0, 0, 0);
+                // s_retry_num = 0;
+                wifi_context.s_sta_got_ip = 0;
+                xEventGroupSetBits(s_wifi_event_group, WIFI_FAIL_BIT);
+                break;
+            default:
+                break;
+        }
     } else if (event_id == WIFI_EVENT_STA_STOP) {
-        ESP_LOGI(TAG, "[%s] WIFI_EVENT_STA_STOP", __FUNCTION__);
+        ESP_LOGI(TAG, "[%s] WIFI_EVENT_STA_STOP ...", __FUNCTION__);
         xEventGroupSetBits(s_wifi_event_group, WIFI_FAIL_BIT);
     } else if (event_id == WIFI_EVENT_AP_START) {
-        ESP_LOGI(TAG, "[%s] WIFI_EVENT_AP_START", __FUNCTION__);
+        ESP_LOGI(TAG, "[%s] WIFI_EVENT_AP_START ...", __FUNCTION__);
         // wifi_ap_start();
         wifi_context.s_ap_connection = 1;
     } else if (event_id == WIFI_EVENT_AP_STOP) {
         ESP_LOGI(TAG, "[%s] WIFI_EVENT_AP_STOP", __FUNCTION__);
         wifi_context.s_ap_connection = 0;
-    } else if (event_id == WIFI_EVENT_AP_STACONNECTED) {
-        ESP_LOGI(TAG, "[%s] WIFI_EVENT_AP_STACONNECTED", __FUNCTION__);
-    } else if (event_id == WIFI_EVENT_AP_STADISCONNECTED) {
-        ESP_LOGI(TAG, "[%s] WIFI_EVENT_AP_STADISCONNECTED", __FUNCTION__);
     }
 }
 
