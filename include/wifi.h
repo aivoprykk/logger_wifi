@@ -12,6 +12,8 @@ extern "C" {
 
 struct context_s;
 
+extern const char * wifi_event_strings[];
+
 struct cfg_item {
   char ssid[32];
   char password[64];
