@@ -146,9 +146,6 @@ static void wifi_event_handler(void *arg, esp_event_base_t event_base, int32_t e
                 apstadisconnevent = (wifi_event_ap_stadisconnected_t *)event_data;
                 ESP_LOGI(TAG, "[%s] %s. " MACSTR " leave, AID=%d", __FUNCTION__, wifi_event_strings[event_id], MAC2STR(apstadisconnevent->mac), apstadisconnevent->aid);
                 break;
-            case WIFI_EVENT_HOME_CHANNEL_CHANGE:
-                ESP_LOGI(TAG, "[%s] WIFI_EVENT_HOME_CHANNEL_CHANGE.", __FUNCTION__);
-                break;
             case WIFI_EVENT_MAX:
                 ESP_LOGI(TAG, "[%s]  WIFI_EVENT_MAX.", __FUNCTION__);
                 break;
