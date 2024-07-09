@@ -19,8 +19,6 @@
 #include "nvs_flash.h"
 
 #include "wifi.h"
-//#include "context.h"
-//#include "sntp.h"
 
 #define TAG "wifi"
 #define IPIPSTR(a) a[0], a[1], a[2], a[3]
@@ -235,15 +233,13 @@ int wifi_uninit() {
         ESP_LOGW(TAG, "[%s] wifi_deinit failed: %s", __FUNCTION__, esp_err_to_name(err));
         // return 0;
     }
-    err = esp_netif_deinit();
-    if (err != ERR_OK) {
-        ESP_LOGW(TAG, "[%s] esp_netif_deinit failed: %s", __FUNCTION__, esp_err_to_name(err));
-        // return 0;
-    }
+    // err = esp_netif_deinit();
+    // if (err != ERR_OK) {
+    //     ESP_LOGW(TAG, "[%s] esp_netif_deinit failed: %s", __FUNCTION__, esp_err_to_name(err));
+    //     // return 0;
+    // }
     esp_netif_destroy_default_wifi(s_sta_netif);
     esp_netif_destroy_default_wifi(s_ap_netif);
-    //esp_netif_destroy(s_sta_netif);
-    //esp_netif_destroy(s_ap_netif);
     wifi_context.s_wifi_initialized = 0;
     return err;
 }

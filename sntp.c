@@ -11,11 +11,7 @@
 #include "esp_wifi.h"
 
 #include "wifi.h"
-//#include "context.h"
-#include "logger_config.h"
 #include "logger_events.h"
-
-//extern struct context_s m_context;
 
 static const char *TAG = "sntp";
 
