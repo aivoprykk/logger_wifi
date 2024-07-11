@@ -1,4 +1,4 @@
-menu "Logger Wifi Configuration"
+menu "Logger Wifi Module Configuration"
     config WIFI_TASK_STACK_SIZE
         int "Wifi Task stack size in bytes"
         default 5120
