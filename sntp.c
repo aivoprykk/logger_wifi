@@ -10,7 +10,7 @@
 #include "esp_sntp.h"
 #include "esp_wifi.h"
 
-#include "wifi.h"
+#include "logger_wifi.h"
 #include "logger_events.h"
 
 static const char *TAG = "sntp";

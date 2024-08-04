@@ -1,6 +1,6 @@
 ### logger_context ###
-#set(REQ gps_log)
-set(PRIVREQ esp_wifi nvs_flash logger_common)
+set(REQ esp_wifi)
+set(PRIVREQ nvs_flash logger_common)
 set(SRCS wifi.c sntp.c)
 SET(INCS include)
 

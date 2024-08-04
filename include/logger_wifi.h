@@ -1,10 +1,8 @@
 #ifndef WIFI_H
 #define WIFI_H
 
-#include <stdint.h>
-#include <stdbool.h>
-
 #include "esp_err.h"
+#include "esp_wifi.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -37,7 +35,7 @@ struct m_wifi_context {
   bool s_sta_connect_not_found;
 
   bool s_sta_connect_error;
- 
+  uint8_t s_sta_num_connect;
   uint8_t s_retry_num;
   struct cfg_item ap;
   struct cfg_item stas[M_WIFI_STA_MAX];
@@ -56,7 +54,7 @@ int wifi_mode(uint8_t sta, uint8_t ap);
 int wifi_set_mode(int mode);
 int wifi_status();
 int wifi_set_config(const char *ap_ssid, const char *ap_password, const char *sta_ssid, const char *sta_password);
-int wifi_sta_set_config(const char *sta_ssid, const char *sta_password);
+int wifi_sta_set_config(int num, const char *sta_ssid, const char *sta_password);
 int wifi_ap_set_config(const char *ap_ssid, const char *ap_password);
 
 // SNTP
