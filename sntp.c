@@ -32,7 +32,7 @@ uint8_t set_time_zone(float offset) {
         cst = "GMTGMT-1,M3.4.0/01,M10.4.0/02";
     } else if (offh == 1) {
         cst = "CET-1CEST,M3.5.0,M10.5.0/3";
-    } else if (offh == 2) {
+    } else if (offh == 2 || offh == 3) { // 3 is for daylight saving time
         cst = "EET-2EEST,M3.5.0/3,M10.5.0/4";
     } else {
         cst = "GMT0";

@@ -50,21 +50,23 @@ struct m_wifi_context wifi_context = {
         .s_wifi_started = 0,
         .s_wifi_initialized = 0,
         .s_nvs_initialized = 0,
+        .s_sta_connection = 0,
         .s_sta_connecting = 0,
         .s_sta_connected = 0,
         .s_sta_got_ip = 0,
         .s_sta_connect_not_found = 0, 
         .s_sta_connect_error = 0,
-        .s_retry_num=0,
+        .s_retry_num=10,
         .s_sta_num_connect = M_WIFI_STA_MAX + 1,
-        .ip_address = {0},
-        .ap = {"ESP32AP", "password",{10, 10, 10, 1}, {255, 255, 255, 0}, {0, 0, 0, 0}},
+        .s_wifi_mode = WIFI_MODE_APSTA,
+        .ap = {"ESP32AP", "password",{10, 10, 10, 1}, {255, 255, 255, 0}, {10, 10, 10, 1}},
         .stas = {
             {"", "", {0, 0, 0, 0}, {0, 0, 0, 0}, {0, 0, 0, 0}},
             {"majasa", "Unim-1.Esimesed.2-Triibulised", {0, 0, 0, 0}, {0, 0, 0, 0}, {0, 0, 0, 0}},
             {"sarje", "", {0, 0, 0, 0}, {0, 0, 0, 0}, {0, 0, 0, 0}},
             {"mmkog", "", {0, 0, 0, 0}, {0, 0, 0, 0}, {0, 0, 0, 0}},
-        }};
+        },
+        .hostname = {0}};
 
 static esp_netif_t *s_sta_netif = 0;  // NOLINT(cppcoreguidelines-avoid-non-const-global-variables)
 static esp_netif_t *s_ap_netif = 0;  // NOLINT(cppcoreguidelines-avoid-non-const-global-variables)
@@ -91,6 +93,29 @@ static EventGroupHandle_t s_wifi_event_group;
 //     esp_wifi_set_config((wifi_interface_t)ESP_IF_WIFI_STA, &current_conf);
 // }
 
+void uint8_to_hex_string(uint8_t value, char *hex_str) {
+    ILOG(TAG, "[%s] %2x", __FUNCTION__, value);
+    const char hex_chars[] = "0123456789ABCDEF";
+    hex_str[0] = hex_chars[(value >> 4) & 0x0F]; // Extract high nibble
+    hex_str[1] = hex_chars[value & 0x0F];        // Extract low nibble
+    hex_str[2] = '\0';                           // Null-terminate the string
+}
+
+static void uint32_to_uint8_array(uint32_t value, uint8_t array[4]) {
+    array[3] = (uint8_t)((value >> 24) & 0xFF);
+    array[2] = (uint8_t)((value >> 16) & 0xFF);
+    array[1] = (uint8_t)((value >> 8) & 0xFF);
+    array[0] = (uint8_t)(value & 0xFF);
+}
+
+void mac_to_char(uint8_t *mac, char *mac_str, uint8_t start) {
+    uint8_t i = start, j = 6;
+    for (int i = start; i < j; i++) {
+        uint8_to_hex_string(mac[i], &mac_str[(i-start) * 2]);
+    }
+    mac_str[(j-start) * 2] = 0;
+}
+
 static void wifi_event_handler(void *arg, esp_event_base_t event_base, int32_t event_id, void *event_data) {
     // ILOG(TAG, "[%s] base: %s event: %" PRId32 "\n", __FUNCTION__, event_base, event_id);
     if (event_base == WIFI_EVENT) {
@@ -108,29 +133,32 @@ static void wifi_event_handler(void *arg, esp_event_base_t event_base, int32_t e
             case WIFI_EVENT_STA_START:  // 2
                 ILOG(TAG, "[%s] %s.", __FUNCTION__, wifi_event_strings[event_id]);
                 // xEventGroupSetBits(s_wifi_event_group, WIFI_CONNECTED_BIT);
+                wifi_context.s_sta_connection = 1;
                 wifi_sta_connect_scan();  // try station mode first
                 break;
             case WIFI_EVENT_STA_STOP:  // 3
                 ILOG(TAG, "[%s] %s.", __FUNCTION__, wifi_event_strings[event_id]);
+                wifi_context.s_sta_connection = 0;
                 xEventGroupSetBits(s_wifi_event_group, WIFI_FAIL_BIT);
                 break;
             case WIFI_EVENT_STA_CONNECTED:  // 4
                 staconnevent = (wifi_event_sta_connected_t *)event_data;
                 ILOG(TAG, "[%s] %s. ssid:%s", __FUNCTION__, wifi_event_strings[event_id], staconnevent->ssid);
-                // wifi_mode(1, 0);
-                //  xEventGroupSetBits(s_wifi_event_group, WIFI_CONNECTED_BIT);
+                wifi_context.s_sta_connected = 1;
                 break;
             case WIFI_EVENT_STA_DISCONNECTED:  // 5
                 stadisconnevent = (wifi_event_sta_disconnected_t *)event_data;
                 ILOG(TAG, "[%s] %s. ssid:%s", __FUNCTION__, wifi_event_strings[event_id], stadisconnevent->ssid);
                 xEventGroupSetBits(s_wifi_event_group, WIFI_FAIL_BIT);
-                // vTaskDelay(50 / portTICK_PERIOD_MS);
-                if (wifi_context.s_sta_got_ip == 1)
+                wifi_context.s_sta_connected = 0;
+                if (wifi_context.s_retry_num && (wifi_context.s_wifi_mode == WIFI_MODE_STA || wifi_context.s_wifi_mode == WIFI_MODE_APSTA)) {
                     wifi_sta_connect_scan();
+                    wifi_context.s_retry_num--;
+                }
                 break;
             case WIFI_EVENT_AP_START:
                 ILOG(TAG, "[%s] %s.", __FUNCTION__, wifi_event_strings[event_id]);
-                sprintf(wifi_context.ip_address, IPSTR, IPIPSTR(wifi_context.ap.ipv4_address));
+                // sprintf(wifi_context.ip_address, IPSTR, IPIPSTR(wifi_context.ap.ipv4_address));
                 wifi_context.s_ap_connection = 1;
                 break;
             case WIFI_EVENT_AP_STOP:
@@ -158,16 +186,18 @@ static void wifi_event_handler(void *arg, esp_event_base_t event_base, int32_t e
             case IP_EVENT_STA_GOT_IP:
                 event = (ip_event_got_ip_t *)event_data;
                 ILOG(TAG, "[%s] IP_EVENT_STA_GOT_IP: " IPSTR, __FUNCTION__, IP2STR(&event->ip_info.ip));
-                sprintf(wifi_context.ip_address, IPSTR, IP2STR(&event->ip_info.ip));
-                // s_retry_num = 0;
+                uint32_to_uint8_array(event->ip_info.ip.addr, wifi_context.stas[wifi_context.s_sta_num_connect].ipv4_address);
+                uint32_to_uint8_array(event->ip_info.netmask.addr, wifi_context.stas[wifi_context.s_sta_num_connect].ipv4_netmask);
+                uint32_to_uint8_array(event->ip_info.gw.addr, wifi_context.stas[wifi_context.s_sta_num_connect].ipv4_gw);
                 wifi_context.s_sta_got_ip = 1;
                 xEventGroupSetBits(s_wifi_event_group, WIFI_CONNECTED_BIT);
                 break;
             case IP_EVENT_STA_LOST_IP:
                 event = (ip_event_got_ip_t *)event_data;
                 ILOG(TAG, "[%s] IP_EVENT_STA_LOST_IP:" IPSTR, __FUNCTION__, IP2STR(&event->ip_info.ip));
-                if(!wifi_context.s_ap_connection)
-                    sprintf(wifi_context.ip_address, IPSTR, 0, 0, 0, 0);
+                memset(wifi_context.stas[wifi_context.s_sta_num_connect].ipv4_address,0, 4);
+                memset(wifi_context.stas[wifi_context.s_sta_num_connect].ipv4_netmask,0, 4);
+                memset(wifi_context.stas[wifi_context.s_sta_num_connect].ipv4_gw,0, 4);
                 wifi_context.s_sta_got_ip = 0;
                 xEventGroupSetBits(s_wifi_event_group, WIFI_FAIL_BIT);
                 break;
@@ -177,6 +207,11 @@ static void wifi_event_handler(void *arg, esp_event_base_t event_base, int32_t e
     } else if (event_id == WIFI_EVENT_STA_STOP) {
         ILOG(TAG, "[%s] %s ...", __FUNCTION__, wifi_event_strings[3]);
         xEventGroupSetBits(s_wifi_event_group, WIFI_FAIL_BIT);
+        wifi_context.s_sta_connection = 0;
+    } else if (event_id == WIFI_EVENT_STA_START) {
+        ILOG(TAG, "[%s] %s.", __FUNCTION__, wifi_event_strings[event_id]);
+        wifi_context.s_sta_connection = 1;
+        wifi_sta_connect_scan();  // try station mode first
     } else if (event_id == WIFI_EVENT_AP_START) {
         ILOG(TAG, "[%s] %s ...", __FUNCTION__, wifi_event_strings[6]);
         // wifi_ap_start();
@@ -240,6 +275,7 @@ int wifi_mode(uint8_t sta, uint8_t ap) {
     ILOG(TAG, "[%s]", __FUNCTION__);
     esp_err_t err = ESP_OK;
     wifi_mode_t current_mode = WIFI_MODE_NULL;
+    wifi_context.s_retry_num = 10;
     if (wifi_context.s_wifi_initialized && wifi_context.s_wifi_started) {
         err = esp_wifi_get_mode(&current_mode);
         if (err != ERR_OK) {
@@ -276,6 +312,7 @@ int wifi_mode(uint8_t sta, uint8_t ap) {
     }
     if (set_ap && !current_ap) {
         ILOG(TAG, "[%s] Enabling AP.", __FUNCTION__);
+        wifi_ap_start();
     } else if (!set_ap && current_ap) {
         ILOG(TAG, "[%s] Disabling AP.", __FUNCTION__);
     }
@@ -291,10 +328,11 @@ int wifi_mode(uint8_t sta, uint8_t ap) {
         return 1;
     }
     
+    wifi_context.s_wifi_mode = set_mode;
     err = esp_wifi_set_mode(set_mode);
     if (err != ERR_OK) {
-        ESP_LOGE(TAG, "[%s] esp_wifi_set_mode failed: %s", __FUNCTION__,
-                 esp_err_to_name(err));
+        ESP_LOGE(TAG, "[%s] esp_wifi_set_mode failed: %s", __FUNCTION__, esp_err_to_name(err));
+        wifi_context.s_wifi_mode = current_mode;
         return 0;
     }
     
@@ -308,10 +346,6 @@ int wifi_mode(uint8_t sta, uint8_t ap) {
     }
     
     return 1;
-}
-
-int wifi_set_mode(int mode) {
-    return esp_wifi_set_mode(mode);
 }
 
 static int nvs_init() {
@@ -401,9 +435,15 @@ int wifi_ap_start() {
     esp_err_t err = ESP_OK;
     wifi_config_t conf;
     memset(&conf, 0, sizeof(conf));
-    
+    if(strcmp(&wifi_context.ap.ssid[0], "ESP32AP") == 0){
+        uint8_t mac[6];
+        esp_read_mac(mac, ESP_MAC_WIFI_STA);
+        char mac_str[8]={0};
+        mac_to_char(mac, mac_str, 4);
+        snprintf(&wifi_context.ap.ssid[0], 32, "ESP%s", mac_str);
+    }
     conf.ap.channel = 1;
-    strncpy((char *)conf.ap.ssid, wifi_context.ap.ssid, 32);
+    strncpy((char *)conf.ap.ssid, &wifi_context.ap.ssid[0], 32);
     conf.ap.max_connection = 5;
     conf.ap.beacon_interval = 100;
     conf.ap.ssid_len = strlen(wifi_context.ap.ssid);
@@ -412,7 +452,7 @@ int wifi_ap_start() {
         conf.ap.authmode = WIFI_AUTH_OPEN;
     } else {
         conf.ap.authmode = WIFI_AUTH_WPA2_PSK;
-        strncpy((char *)conf.ap.password, wifi_context.ap.password, 64);
+        strncpy((char *)conf.ap.password, &wifi_context.ap.password[0], 64);
     }
     
 #if ESP_IDF_VERSION_MAJOR >= 4
@@ -422,7 +462,7 @@ int wifi_ap_start() {
     
     err = esp_wifi_set_config(WIFI_IF_AP, &conf);
     if (err != ESP_OK) {
-        ESP_LOGE(TAG, "esp_wifi_set_config failed! %d", err);
+        ESP_LOGE(TAG, "esp_wifi_set_config  WIFI_IF_AP failed: %s", esp_err_to_name(err));
         goto end;
     }
     
@@ -483,7 +523,7 @@ int wifi_sta_connect(uint16_t slot) {
     }
     err = esp_wifi_set_config(WIFI_IF_STA, &conf);
     if (err != ESP_OK) {
-        ESP_LOGE(TAG, "esp_wifi_set_config failed: %s", esp_err_to_name(err));
+        ESP_LOGE(TAG, "esp_wifi_set_config WIFI_IF_STA failed: %s", esp_err_to_name(err));
         goto end;
     }
     wifi_context.s_sta_num_connect = slot;
@@ -538,39 +578,44 @@ int wifi_status() {
     }
 }
 
-#define SCAN_LIST_SIZE 8
+#define SCAN_LIST_SIZE 10
+static uint8_t scan_progress = 0;
 int wifi_sta_connect_scan() {
     ILOG(TAG, "[%s]", __FUNCTION__);
+    if(scan_progress)
+        return 0;
+    scan_progress = 1;
     int err = 0;
-    uint16_t number = 10;
-    wifi_ap_record_t ap_info[10];
+    uint16_t number = SCAN_LIST_SIZE;
+    wifi_ap_record_t ap_info[SCAN_LIST_SIZE] = {0};
     uint16_t ap_count = 0;
     memset(ap_info, 0, sizeof(ap_info));
     err = esp_wifi_scan_start(NULL, true);
-    err = esp_wifi_scan_get_ap_records(&number, ap_info);
     err = esp_wifi_scan_get_ap_num(&ap_count);
+    err = esp_wifi_scan_get_ap_records(&number, ap_info);
+    ILOG(TAG, "[%s] ap_count: %d", __FUNCTION__, ap_count);
     uint8_t k = M_WIFI_STA_MAX + 1;
     if (ap_count > 0) {
         uint16_t i, j;
-        for (i = 0; (i < 10) && (i < ap_count); i++) {
+        for (i = 0; (i < SCAN_LIST_SIZE) && (i < ap_count); ++i) {
             ILOG(TAG, "* %s\t\t%d", ap_info[i].ssid, ap_info[i].rssi);
-            if (k < M_WIFI_STA_MAX) {
-                for (j = 0; j < M_WIFI_STA_MAX; ++j) {
-                    if (!wifi_context.stas[j].ssid[0])
-                        continue;
-                    if (strcmp((char *)&(ap_info[i].ssid[0]), wifi_context.stas[j].ssid)) {
-                        k = i;
-                        // break;
-                    }
+            for (j = 0; j < M_WIFI_STA_MAX; ++j) {
+                if (!wifi_context.stas[j].ssid[0])
+                    continue;
+                if (!strcmp((char*)&(ap_info[i].ssid[0]), &(wifi_context.stas[j].ssid[0]))) {
+                    ILOG(TAG, "[%s] found %s", __FUNCTION__, wifi_context.stas[j].ssid);
+                    k = j;
+                    goto found;
                 }
             }
         }
     }
+    found:
     if (k < M_WIFI_STA_MAX)
         err = wifi_sta_connect(k);
     else if (ap_count > M_WIFI_STA_MAX - 1 || !ap_count)
         err = wifi_sta_connect(0);
-    
+    scan_progress = 0;
     return err;
 }
 

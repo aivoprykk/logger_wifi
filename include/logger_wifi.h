@@ -29,6 +29,7 @@ struct m_wifi_context {
   bool s_wifi_initialized;
   bool s_nvs_initialized;
 
+  bool s_sta_connection;
   bool s_sta_connecting;
   bool s_sta_connected;
   bool s_sta_got_ip;
@@ -37,9 +38,10 @@ struct m_wifi_context {
   bool s_sta_connect_error;
   uint8_t s_sta_num_connect;
   uint8_t s_retry_num;
+  uint8_t s_wifi_mode;
   struct cfg_item ap;
   struct cfg_item stas[M_WIFI_STA_MAX];
-  char ip_address[16];
+  char hostname[32];
   float offset;
   //struct context_s * m_context;
 };
@@ -51,7 +53,6 @@ void wifi_init();
 int wifi_uninit();
 esp_err_t wifi_disconnect();
 int wifi_mode(uint8_t sta, uint8_t ap);
-int wifi_set_mode(int mode);
 int wifi_status();
 int wifi_set_config(const char *ap_ssid, const char *ap_password, const char *sta_ssid, const char *sta_password);
 int wifi_sta_set_config(int num, const char *sta_ssid, const char *sta_password);
@@ -64,6 +65,8 @@ void initialize_sntp(float offset);
 int uninitialize_sntp(void);
 //void obtain_sntp_time(void);
 void print_local_time();
+void uint8_to_hex_string(uint8_t value, char *hex_str);
+void mac_to_char(uint8_t *mac, char *mac_str, uint8_t start);
 
 #ifdef __cplusplus
 }
