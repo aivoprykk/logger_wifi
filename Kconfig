@@ -1,4 +1,17 @@
 menu "Logger Wifi Module Configuration"
+    config WIFI_TASK_STACK_SIZE
+        int "Wifi Task stack size in bytes"
+        default 3072
+    config SNTP_TIME_SERVER
+        string "SNTP server name"
+        default "ee.pool.ntp.org"
+        help
+            Hostname of the main SNTP server.
+    config SNTP_TIME_ZONE
+        int "SNTP time zone"
+        default 2
+        help
+            Time zone in hours.
     choice
         bool "Default log verbosity"
         default LOGGER_WIFI_LOG_LEVEL_WARN
@@ -25,17 +38,4 @@ menu "Logger Wifi Module Configuration"
         default 3 if LOGGER_WIFI_LOG_LEVEL_ERROR
         default 4 if LOGGER_WIFI_LOG_LEVEL_USER
         default 5 if LOGGER_WIFI_LOG_LEVEL_NONE
-    config WIFI_TASK_STACK_SIZE
-        int "Wifi Task stack size in bytes"
-        default 3072
-    config SNTP_TIME_SERVER
-        string "SNTP server name"
-        default "ee.pool.ntp.org"
-        help
-            Hostname of the main SNTP server.
-    config SNTP_TIME_ZONE
-        int "SNTP time zone"
-        default 2
-        help
-            Time zone in hours.
 endmenu
