@@ -62,21 +62,21 @@ struct m_wifi_context wifi_context = {
         .ap = {"ESP32AP", "password",{10, 10, 10, 1}, {255, 255, 255, 0}, {10, 10, 10, 1}},
         .stas = {
             {"", "", {0, 0, 0, 0}, {0, 0, 0, 0}, {0, 0, 0, 0}},
-            {"majasa", "Unim-1.Esimesed.2-Triibulised", {0, 0, 0, 0}, {0, 0, 0, 0}, {0, 0, 0, 0}},
-            {"sarje", "", {0, 0, 0, 0}, {0, 0, 0, 0}, {0, 0, 0, 0}},
-            {"mmkog", "", {0, 0, 0, 0}, {0, 0, 0, 0}, {0, 0, 0, 0}},
+            {"", "", {0, 0, 0, 0}, {0, 0, 0, 0}, {0, 0, 0, 0}},
+            {"", "", {0, 0, 0, 0}, {0, 0, 0, 0}, {0, 0, 0, 0}},
+            {"", "", {0, 0, 0, 0}, {0, 0, 0, 0}, {0, 0, 0, 0}},
         },
         .hostname = {0}};
 
 static esp_netif_t *s_sta_netif = 0;  // NOLINT(cppcoreguidelines-avoid-non-const-global-variables)
 static esp_netif_t *s_ap_netif = 0;  // NOLINT(cppcoreguidelines-avoid-non-const-global-variables)
-esp_event_handler_instance_t instance_wifi_id, instance_ip_id;
+esp_event_handler_instance_t instance_wifi_id = 0, instance_ip_id = 0;
 
 #define MAX_STA_CONN (8)
 #define ESP_MAXIMUM_RETRY (10)
 
 /* FreeRTOS event group to signal when we are connected*/
-static EventGroupHandle_t s_wifi_event_group;
+static EventGroupHandle_t s_wifi_event_group = 0;
 
 /* The event group allows multiple bits for each event, but we only care about
  * two events:
@@ -124,12 +124,6 @@ static void wifi_event_handler(void *arg, esp_event_base_t event_base, int32_t e
         wifi_event_ap_staconnected_t *apstaconnevent;
         wifi_event_ap_stadisconnected_t *apstadisconnevent;
         switch (event_id) {
-            case WIFI_EVENT_WIFI_READY:  // 0
-                ILOG(TAG, "[%s] %s.", __FUNCTION__, wifi_event_strings[event_id]);
-                break;
-            case WIFI_EVENT_SCAN_DONE:  // 1
-                ILOG(TAG, "[%s] %s.", __FUNCTION__, wifi_event_strings[event_id]);
-                break;
             case WIFI_EVENT_STA_START:  // 2
                 ILOG(TAG, "[%s] %s.", __FUNCTION__, wifi_event_strings[event_id]);
                 // xEventGroupSetBits(s_wifi_event_group, WIFI_CONNECTED_BIT);
@@ -139,7 +133,8 @@ static void wifi_event_handler(void *arg, esp_event_base_t event_base, int32_t e
             case WIFI_EVENT_STA_STOP:  // 3
                 ILOG(TAG, "[%s] %s.", __FUNCTION__, wifi_event_strings[event_id]);
                 wifi_context.s_sta_connection = 0;
-                xEventGroupSetBits(s_wifi_event_group, WIFI_FAIL_BIT);
+                if(s_wifi_event_group)
+                    xEventGroupSetBits(s_wifi_event_group, WIFI_FAIL_BIT);
                 break;
             case WIFI_EVENT_STA_CONNECTED:  // 4
                 staconnevent = (wifi_event_sta_connected_t *)event_data;
@@ -149,7 +144,8 @@ static void wifi_event_handler(void *arg, esp_event_base_t event_base, int32_t e
             case WIFI_EVENT_STA_DISCONNECTED:  // 5
                 stadisconnevent = (wifi_event_sta_disconnected_t *)event_data;
                 ILOG(TAG, "[%s] %s. ssid:%s", __FUNCTION__, wifi_event_strings[event_id], stadisconnevent->ssid);
-                xEventGroupSetBits(s_wifi_event_group, WIFI_FAIL_BIT);
+                if(s_wifi_event_group)
+                    xEventGroupSetBits(s_wifi_event_group, WIFI_FAIL_BIT);
                 wifi_context.s_sta_connected = 0;
                 if (wifi_context.s_retry_num && (wifi_context.s_wifi_mode == WIFI_MODE_STA || wifi_context.s_wifi_mode == WIFI_MODE_APSTA)) {
                     wifi_sta_connect_scan();
@@ -190,7 +186,8 @@ static void wifi_event_handler(void *arg, esp_event_base_t event_base, int32_t e
                 uint32_to_uint8_array(event->ip_info.netmask.addr, wifi_context.stas[wifi_context.s_sta_num_connect].ipv4_netmask);
                 uint32_to_uint8_array(event->ip_info.gw.addr, wifi_context.stas[wifi_context.s_sta_num_connect].ipv4_gw);
                 wifi_context.s_sta_got_ip = 1;
-                xEventGroupSetBits(s_wifi_event_group, WIFI_CONNECTED_BIT);
+                if(s_wifi_event_group)
+                    xEventGroupSetBits(s_wifi_event_group, WIFI_CONNECTED_BIT);
                 break;
             case IP_EVENT_STA_LOST_IP:
                 event = (ip_event_got_ip_t *)event_data;
@@ -199,14 +196,16 @@ static void wifi_event_handler(void *arg, esp_event_base_t event_base, int32_t e
                 memset(wifi_context.stas[wifi_context.s_sta_num_connect].ipv4_netmask,0, 4);
                 memset(wifi_context.stas[wifi_context.s_sta_num_connect].ipv4_gw,0, 4);
                 wifi_context.s_sta_got_ip = 0;
-                xEventGroupSetBits(s_wifi_event_group, WIFI_FAIL_BIT);
+                if(s_wifi_event_group)
+                    xEventGroupSetBits(s_wifi_event_group, WIFI_FAIL_BIT);
                 break;
             default:
                 break;
         }
     } else if (event_id == WIFI_EVENT_STA_STOP) {
         ILOG(TAG, "[%s] %s ...", __FUNCTION__, wifi_event_strings[3]);
-        xEventGroupSetBits(s_wifi_event_group, WIFI_FAIL_BIT);
+        if(s_wifi_event_group)
+            xEventGroupSetBits(s_wifi_event_group, WIFI_FAIL_BIT);
         wifi_context.s_sta_connection = 0;
     } else if (event_id == WIFI_EVENT_STA_START) {
         ILOG(TAG, "[%s] %s.", __FUNCTION__, wifi_event_strings[event_id]);
@@ -231,11 +230,12 @@ int wifi_uninit() {
     ILOG(TAG, "[%s]", __FUNCTION__);
     esp_err_t err = ESP_OK;
     /* The event will not be processed after unregister */
-    wifi_context.s_sta_connecting = false;
-    wifi_context.s_sta_connected = false;
-    wifi_context.s_sta_got_ip = false;
-    wifi_context.s_sta_connect_error = false;
-    wifi_context.s_sta_connect_not_found = false;
+    // wifi_context.s_sta_connecting = false;
+    // wifi_context.s_sta_connected = false;
+    // wifi_context.s_sta_got_ip = false;
+    // wifi_context.s_sta_connect_error = false;
+    // wifi_context.s_sta_connect_not_found = false;
+    wifi_context.s_retry_num = 0;
     err = wifi_disconnect();
     if (err != ERR_OK) {
         ESP_LOGW(TAG, "[%s] wifi_disconnect failed: %s", __FUNCTION__, esp_err_to_name(err));
@@ -244,16 +244,9 @@ int wifi_uninit() {
     if (err != ERR_OK) {
         ESP_LOGW(TAG, "[%s] esp_wifi_stop failed: %s", __FUNCTION__, esp_err_to_name(err));
     }
-    err = esp_event_handler_instance_unregister(IP_EVENT, IP_EVENT_STA_GOT_IP, instance_ip_id);
-    if (err != ERR_OK) {
-        ESP_LOGW(TAG, "[%s] esp_event_handler_instance_unregister IP_EVENT failed: %s", __FUNCTION__, esp_err_to_name(err));
-        }
-    err = esp_event_handler_instance_unregister(WIFI_EVENT, ESP_EVENT_ANY_ID, instance_wifi_id);
-    if (err != ERR_OK) {
-        ESP_LOGW(TAG, "[%s] esp_event_handler_instance_unregister WIFI_EVENT failed: %s", __FUNCTION__, esp_err_to_name(err));
-    }
     if (s_wifi_event_group) {
         vEventGroupDelete(s_wifi_event_group);
+        s_wifi_event_group = 0;
     }
     
     err = uninitialize_sntp();
@@ -265,8 +258,22 @@ int wifi_uninit() {
     if (err != ERR_OK) {
         ESP_LOGW(TAG, "[%s] esp_wifi_deinit failed: %s", __FUNCTION__, esp_err_to_name(err));
     }
-    esp_netif_destroy_default_wifi(s_sta_netif);
-    esp_netif_destroy_default_wifi(s_ap_netif);
+    
+    esp_netif_deinit();
+    
+    err = esp_event_handler_instance_unregister(IP_EVENT, IP_EVENT_STA_GOT_IP, instance_ip_id);
+    if (err != ERR_OK) {
+        ESP_LOGW(TAG, "[%s] esp_event_handler_instance_unregister IP_EVENT failed: %s", __FUNCTION__, esp_err_to_name(err));
+        }
+    err = esp_event_handler_instance_unregister(WIFI_EVENT, ESP_EVENT_ANY_ID, instance_wifi_id);
+    if (err != ERR_OK) {
+        ESP_LOGW(TAG, "[%s] esp_event_handler_instance_unregister WIFI_EVENT failed: %s", __FUNCTION__, esp_err_to_name(err));
+    }
+
+    // esp_netif_destroy(s_sta_netif);
+    // s_sta_netif = 0;
+    // esp_netif_destroy(s_ap_netif);
+    // s_ap_netif = 0;
     wifi_context.s_wifi_initialized = 0;
     return err;
 }
@@ -380,11 +387,13 @@ void wifi_init() {
         ESP_LOGE(TAG, "esp_netif_init failed: %s", esp_err_to_name(err));
         goto end;
     }
-    ILOG(TAG, "[%s] create event group...", __FUNCTION__);
-    s_wifi_event_group = xEventGroupCreate();
-    if (s_wifi_event_group == 0) {
-        ESP_LOGE(TAG, "xEventGroupCreate failed");
-        goto end;
+    if(!s_wifi_event_group) {
+        ILOG(TAG, "[%s] create event group...", __FUNCTION__);
+        s_wifi_event_group = xEventGroupCreate();
+        if (s_wifi_event_group == 0) {
+            ESP_LOGE(TAG, "xEventGroupCreate failed");
+            goto end;
+        }
     }
     
     ILOG(TAG, "[%s] register event handlers...", __FUNCTION__);
@@ -401,8 +410,10 @@ void wifi_init() {
     }
     
     ILOG(TAG, "[%s] create default sta and ap...", __FUNCTION__);
-    s_sta_netif = esp_netif_create_default_wifi_sta();
-    s_ap_netif = esp_netif_create_default_wifi_ap();
+    if(!s_sta_netif)
+        s_sta_netif = esp_netif_create_default_wifi_sta();
+    if(!s_ap_netif)
+        s_ap_netif = esp_netif_create_default_wifi_ap();
     
     esp_netif_ip_info_t ipInfo;
     const struct cfg_item * item = &wifi_context.ap;

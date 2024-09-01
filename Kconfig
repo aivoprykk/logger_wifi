@@ -1,7 +1,7 @@
 menu "Logger Wifi Module Configuration"
     config WIFI_TASK_STACK_SIZE
         int "Wifi Task stack size in bytes"
-        default 3072
+        default 2048
     config SNTP_TIME_SERVER
         string "SNTP server name"
         default "ee.pool.ntp.org"
