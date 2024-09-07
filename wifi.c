@@ -119,10 +119,6 @@ void mac_to_char(uint8_t *mac, char *mac_str, uint8_t start) {
 static void wifi_event_handler(void *arg, esp_event_base_t event_base, int32_t event_id, void *event_data) {
     // ILOG(TAG, "[%s] base: %s event: %" PRId32 "\n", __FUNCTION__, event_base, event_id);
     if (event_base == WIFI_EVENT) {
-        wifi_event_sta_connected_t *staconnevent;
-        wifi_event_sta_disconnected_t *stadisconnevent;
-        wifi_event_ap_staconnected_t *apstaconnevent;
-        wifi_event_ap_stadisconnected_t *apstadisconnevent;
         switch (event_id) {
             case WIFI_EVENT_STA_START:  // 2
                 ILOG(TAG, "[%s] %s.", __FUNCTION__, wifi_event_strings[event_id]);
@@ -137,12 +133,12 @@ static void wifi_event_handler(void *arg, esp_event_base_t event_base, int32_t e
                     xEventGroupSetBits(s_wifi_event_group, WIFI_FAIL_BIT);
                 break;
             case WIFI_EVENT_STA_CONNECTED:  // 4
-                staconnevent = (wifi_event_sta_connected_t *)event_data;
+                const wifi_event_sta_connected_t * staconnevent = (wifi_event_sta_connected_t *)event_data;
                 ILOG(TAG, "[%s] %s. ssid:%s", __FUNCTION__, wifi_event_strings[event_id], staconnevent->ssid);
                 wifi_context.s_sta_connected = 1;
                 break;
             case WIFI_EVENT_STA_DISCONNECTED:  // 5
-                stadisconnevent = (wifi_event_sta_disconnected_t *)event_data;
+                const wifi_event_sta_disconnected_t * stadisconnevent = (wifi_event_sta_disconnected_t *)event_data;
                 ILOG(TAG, "[%s] %s. ssid:%s", __FUNCTION__, wifi_event_strings[event_id], stadisconnevent->ssid);
                 if(s_wifi_event_group)
                     xEventGroupSetBits(s_wifi_event_group, WIFI_FAIL_BIT);
@@ -162,12 +158,12 @@ static void wifi_event_handler(void *arg, esp_event_base_t event_base, int32_t e
                 wifi_context.s_ap_connection = 0;
                 break;
             case WIFI_EVENT_AP_STACONNECTED:
-                apstaconnevent = (wifi_event_ap_staconnected_t *)event_data;
+                const wifi_event_ap_staconnected_t * apstaconnevent = (wifi_event_ap_staconnected_t *)event_data;
                 //memcpy(wifi_context.m_context->mac, apstaconnevent->mac, 6);
                 ILOG(TAG, "[%s] %s. " MACSTR " join, AID=%d", __FUNCTION__, wifi_event_strings[event_id], MAC2STR(apstaconnevent->mac), apstaconnevent->aid);
                 break;
             case WIFI_EVENT_AP_STADISCONNECTED:
-                apstadisconnevent = (wifi_event_ap_stadisconnected_t *)event_data;
+                const wifi_event_ap_stadisconnected_t * apstadisconnevent = (wifi_event_ap_stadisconnected_t *)event_data;
                 ILOG(TAG, "[%s] %s. " MACSTR " leave, AID=%d", __FUNCTION__, wifi_event_strings[event_id], MAC2STR(apstadisconnevent->mac), apstadisconnevent->aid);
                 break;
             case WIFI_EVENT_MAX:
