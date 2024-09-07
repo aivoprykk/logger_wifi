@@ -14,7 +14,7 @@ menu "Logger Wifi Module Configuration"
             Time zone in hours.
     choice
         bool "Default log verbosity"
-        default LOGGER_WIFI_LOG_LEVEL_WARN
+        default LOGGER_WIFI_LOG_LEVEL_ERROR
         help
             Specify how important log should be added.
         config LOGGER_WIFI_LOG_LEVEL_TRACE
