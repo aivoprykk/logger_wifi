@@ -2,6 +2,11 @@ menu "Logger Wifi Module Configuration"
     config WIFI_TASK_STACK_SIZE
         int "Wifi Task stack size in bytes"
         default 2048
+    config MAIN_DNS_SERVER
+        string "Main DNS server ip"
+        default "8.8.8.8"
+        help
+            IP of the Main DNS server.
     config SNTP_TIME_SERVER
         string "SNTP server name"
         default "ee.pool.ntp.org"

@@ -121,50 +121,51 @@ static void wifi_event_handler(void *arg, esp_event_base_t event_base, int32_t e
     if (event_base == WIFI_EVENT) {
         switch (event_id) {
             case WIFI_EVENT_STA_START:  // 2
-                ILOG(TAG, "[%s] %s.", __FUNCTION__, wifi_event_strings[event_id]);
+                ESP_LOGW(TAG, "[%s] WIFI_EVENT -> %s", __FUNCTION__, wifi_event_strings[event_id]);
                 // xEventGroupSetBits(s_wifi_event_group, WIFI_CONNECTED_BIT);
                 wifi_context.s_sta_connection = 1;
                 wifi_sta_connect_scan();  // try station mode first
                 break;
             case WIFI_EVENT_STA_STOP:  // 3
-                ILOG(TAG, "[%s] %s.", __FUNCTION__, wifi_event_strings[event_id]);
+                ESP_LOGW(TAG, "[%s] WIFI_EVENT -> %s", __FUNCTION__, wifi_event_strings[event_id]);
                 wifi_context.s_sta_connection = 0;
                 if(s_wifi_event_group)
                     xEventGroupSetBits(s_wifi_event_group, WIFI_FAIL_BIT);
                 break;
             case WIFI_EVENT_STA_CONNECTED:  // 4
                 const wifi_event_sta_connected_t * staconnevent = (wifi_event_sta_connected_t *)event_data;
-                ILOG(TAG, "[%s] %s. ssid:%s", __FUNCTION__, wifi_event_strings[event_id], staconnevent->ssid);
+                ILOG(TAG, "[%s]  WIFI_EVENT -> %s. ssid:%s", __FUNCTION__, wifi_event_strings[event_id], staconnevent->ssid);
                 wifi_context.s_sta_connected = 1;
                 break;
             case WIFI_EVENT_STA_DISCONNECTED:  // 5
                 const wifi_event_sta_disconnected_t * stadisconnevent = (wifi_event_sta_disconnected_t *)event_data;
-                ILOG(TAG, "[%s] %s. ssid:%s", __FUNCTION__, wifi_event_strings[event_id], stadisconnevent->ssid);
+                ILOG(TAG, "[%s]  WIFI_EVENT -> %s. ssid:%s", __FUNCTION__, wifi_event_strings[event_id], stadisconnevent->ssid);
                 if(s_wifi_event_group)
                     xEventGroupSetBits(s_wifi_event_group, WIFI_FAIL_BIT);
                 wifi_context.s_sta_connected = 0;
                 if (wifi_context.s_retry_num && (wifi_context.s_wifi_mode == WIFI_MODE_STA || wifi_context.s_wifi_mode == WIFI_MODE_APSTA)) {
+                    ESP_LOGW(TAG, "[%s] %s.", __FUNCTION__, wifi_event_strings[event_id]);
                     wifi_sta_connect_scan();
                     wifi_context.s_retry_num--;
                 }
                 break;
             case WIFI_EVENT_AP_START:
-                ILOG(TAG, "[%s] %s.", __FUNCTION__, wifi_event_strings[event_id]);
+                ILOG(TAG, "[%s]  WIFI_EVENT -> %s.", __FUNCTION__, wifi_event_strings[event_id]);
                 // sprintf(wifi_context.ip_address, IPSTR, IPIPSTR(wifi_context.ap.ipv4_address));
                 wifi_context.s_ap_connection = 1;
                 break;
             case WIFI_EVENT_AP_STOP:
-                ILOG(TAG, "[%s] %s.", __FUNCTION__, wifi_event_strings[event_id]);
+                ILOG(TAG, "[%s]  WIFI_EVENT -> %s.", __FUNCTION__, wifi_event_strings[event_id]);
                 wifi_context.s_ap_connection = 0;
                 break;
             case WIFI_EVENT_AP_STACONNECTED:
                 const wifi_event_ap_staconnected_t * apstaconnevent = (wifi_event_ap_staconnected_t *)event_data;
                 //memcpy(wifi_context.m_context->mac, apstaconnevent->mac, 6);
-                ILOG(TAG, "[%s] %s. " MACSTR " join, AID=%d", __FUNCTION__, wifi_event_strings[event_id], MAC2STR(apstaconnevent->mac), apstaconnevent->aid);
+                ILOG(TAG, "[%s]  WIFI_EVENT -> %s. " MACSTR " join, AID=%d", __FUNCTION__, wifi_event_strings[event_id], MAC2STR(apstaconnevent->mac), apstaconnevent->aid);
                 break;
             case WIFI_EVENT_AP_STADISCONNECTED:
                 const wifi_event_ap_stadisconnected_t * apstadisconnevent = (wifi_event_ap_stadisconnected_t *)event_data;
-                ILOG(TAG, "[%s] %s. " MACSTR " leave, AID=%d", __FUNCTION__, wifi_event_strings[event_id], MAC2STR(apstadisconnevent->mac), apstadisconnevent->aid);
+                ILOG(TAG, "[%s]  WIFI_EVENT -> %s. " MACSTR " leave, AID=%d", __FUNCTION__, wifi_event_strings[event_id], MAC2STR(apstadisconnevent->mac), apstadisconnevent->aid);
                 break;
             case WIFI_EVENT_MAX:
                 ILOG(TAG, "[%s]  WIFI_EVENT_MAX.", __FUNCTION__);
@@ -177,21 +178,36 @@ static void wifi_event_handler(void *arg, esp_event_base_t event_base, int32_t e
         switch(event_id) {
             case IP_EVENT_STA_GOT_IP:
                 event = (ip_event_got_ip_t *)event_data;
-                ILOG(TAG, "[%s] IP_EVENT_STA_GOT_IP: " IPSTR, __FUNCTION__, IP2STR(&event->ip_info.ip));
+                ESP_LOGW(TAG, "[%s] IP_EVENT -> IP_EVENT_STA_GOT_IP: " IPSTR, __FUNCTION__, IP2STR(&event->ip_info.ip));
                 uint32_to_uint8_array(event->ip_info.ip.addr, wifi_context.stas[wifi_context.s_sta_num_connect].ipv4_address);
                 uint32_to_uint8_array(event->ip_info.netmask.addr, wifi_context.stas[wifi_context.s_sta_num_connect].ipv4_netmask);
                 uint32_to_uint8_array(event->ip_info.gw.addr, wifi_context.stas[wifi_context.s_sta_num_connect].ipv4_gw);
                 wifi_context.s_sta_got_ip = 1;
+                /* Set sta as the default interface */
+                esp_netif_set_default_netif(s_sta_netif);
+                if(wifi_context.s_ap_connection) {
+#if defined(CONFIG_LWIP_IPV4_NAPT)
+                    if(esp_netif_napt_enable(s_ap_netif) != ESP_OK) {
+                        ESP_LOGE(TAG, "NAPT not enabled on the netif: %p", s_ap_netif);
+                    }
+#endif
+                }
                 if(s_wifi_event_group)
                     xEventGroupSetBits(s_wifi_event_group, WIFI_CONNECTED_BIT);
                 break;
             case IP_EVENT_STA_LOST_IP:
                 event = (ip_event_got_ip_t *)event_data;
-                ILOG(TAG, "[%s] IP_EVENT_STA_LOST_IP:" IPSTR, __FUNCTION__, IP2STR(&event->ip_info.ip));
+                ESP_LOGW(TAG, "[%s] IP_EVENT -> IP_EVENT_STA_LOST_IP:" IPSTR, __FUNCTION__, IP2STR(&event->ip_info.ip));
                 memset(wifi_context.stas[wifi_context.s_sta_num_connect].ipv4_address,0, 4);
                 memset(wifi_context.stas[wifi_context.s_sta_num_connect].ipv4_netmask,0, 4);
                 memset(wifi_context.stas[wifi_context.s_sta_num_connect].ipv4_gw,0, 4);
                 wifi_context.s_sta_got_ip = 0;
+                if(wifi_context.s_ap_connection) {
+                    esp_netif_set_default_netif(s_ap_netif);
+#if defined(CONFIG_LWIP_IPV4_NAPT)
+                    esp_netif_napt_disable(s_ap_netif);
+#endif
+                }
                 if(s_wifi_event_group)
                     xEventGroupSetBits(s_wifi_event_group, WIFI_FAIL_BIT);
                 break;
@@ -199,20 +215,20 @@ static void wifi_event_handler(void *arg, esp_event_base_t event_base, int32_t e
                 break;
         }
     } else if (event_id == WIFI_EVENT_STA_STOP) {
-        ILOG(TAG, "[%s] %s ...", __FUNCTION__, wifi_event_strings[3]);
+        ESP_LOGW(TAG, "[%s] - -> %s", __FUNCTION__, wifi_event_strings[3]);
         if(s_wifi_event_group)
             xEventGroupSetBits(s_wifi_event_group, WIFI_FAIL_BIT);
         wifi_context.s_sta_connection = 0;
     } else if (event_id == WIFI_EVENT_STA_START) {
-        ILOG(TAG, "[%s] %s.", __FUNCTION__, wifi_event_strings[event_id]);
+        ESP_LOGW(TAG, "[%s] - -> %s", __FUNCTION__, wifi_event_strings[event_id]);
         wifi_context.s_sta_connection = 1;
         wifi_sta_connect_scan();  // try station mode first
     } else if (event_id == WIFI_EVENT_AP_START) {
-        ILOG(TAG, "[%s] %s ...", __FUNCTION__, wifi_event_strings[6]);
+        ILOG(TAG, "[%s] - -> %s", __FUNCTION__, wifi_event_strings[6]);
         // wifi_ap_start();
         wifi_context.s_ap_connection = 1;
     } else if (event_id == WIFI_EVENT_AP_STOP) {
-        ILOG(TAG, "[%s] %s", __FUNCTION__, wifi_event_strings[7]);
+        ILOG(TAG, "[%s] - -> %s", __FUNCTION__, wifi_event_strings[7]);
         wifi_context.s_ap_connection = 0;
     }
 }
@@ -303,7 +319,7 @@ int wifi_mode(uint8_t sta, uint8_t ap) {
         set_mode = WIFI_MODE_NULL;
     }
     
-    ILOG(TAG, "[%s] set (sta: %d, ap: %d, next: %d)", __FUNCTION__, set_sta, set_ap, set_mode);
+    ESP_LOGW(TAG, "[%s] set (sta: %d, ap: %d, next: %d)", __FUNCTION__, set_sta, set_ap, set_mode);
     
     if (current_mode == set_mode)
         return 1;
@@ -411,13 +427,19 @@ void wifi_init() {
     if(!s_ap_netif)
         s_ap_netif = esp_netif_create_default_wifi_ap();
     
-    esp_netif_ip_info_t ipInfo;
+    esp_netif_ip_info_t ipInfo = {0};
     const struct cfg_item * item = &wifi_context.ap;
     IP4_ADDR(&ipInfo.ip, item->ipv4_address[0], item->ipv4_address[1], item->ipv4_address[2], item->ipv4_address[3]);
     IP4_ADDR(&ipInfo.gw, item->ipv4_gw[0], item->ipv4_gw[1], item->ipv4_gw[2], item->ipv4_gw[3]);
     IP4_ADDR(&ipInfo.netmask, item->ipv4_netmask[0], item->ipv4_netmask[1], item->ipv4_netmask[2], item->ipv4_netmask[3]);
     esp_netif_dhcps_stop(s_ap_netif);
     esp_netif_set_ip_info(s_ap_netif, &ipInfo);
+#if defined(CONFIG_LWIP_IPV4_NAPT)
+    // esp_netif_dns_info_t dns_info = {0};
+    // dns_info.ip.u_addr.ip4.addr = ipaddr_addr(CONFIG_MAIN_DNS_SERVER);
+    // dns_info.ip.type = IPADDR_TYPE_V4;
+    // esp_netif_set_dns_info(s_ap_netif, ESP_NETIF_DNS_MAIN, &dns_info);
+#endif
     esp_netif_dhcps_start(s_ap_netif);
     
     wifi_init_config_t cfg = WIFI_INIT_CONFIG_DEFAULT();
@@ -451,7 +473,7 @@ int wifi_ap_start() {
     }
     conf.ap.channel = 1;
     strncpy((char *)conf.ap.ssid, &wifi_context.ap.ssid[0], 32);
-    conf.ap.max_connection = 5;
+    conf.ap.max_connection = 3;
     conf.ap.beacon_interval = 100;
     conf.ap.ssid_len = strlen(wifi_context.ap.ssid);
     
@@ -473,12 +495,6 @@ int wifi_ap_start() {
         goto end;
     }
     
-    /*if (!this->wifi_ap_ip_config_(ap.get_manual_ip())) {
-     ESP_LOGV(TAG, "wifi_ap_ip_config_ failed!");
-     return false;
-     }
-     
-     return true;*/
     end:
     return err;
 }
@@ -488,21 +504,10 @@ int wifi_sta_connect(uint16_t slot) {
     esp_err_t err = ESP_OK;
     if (slot >= M_WIFI_STA_MAX || !wifi_context.stas[slot].ssid[slot])
         goto end;
-    // if (!wifi_mode(1, 0))
-    //     goto end;
     wifi_config_t conf;
     memset(&conf, 0, sizeof(conf));
     strncpy((char *)conf.sta.ssid, wifi_context.stas[slot].ssid, 31);
     conf.sta.listen_interval = 0;
-    /* #if ESP_IDF_VERSION_MAJOR >= 4
-     // Protected Management Frame
-     // Device will prefer to connect in PMF mode if other device also advertises
-     // PMF capability.
-     conf.sta.pmf_cfg.capable = true;
-     conf.sta.pmf_cfg.required = false;
-     #endif */
-    // note, we do our own filtering
-    // The minimum rssi to accept in the fast scan mode
     conf.sta.threshold.rssi = -127;
     if (!*wifi_context.stas[slot].password) {
         conf.sta.threshold.authmode = WIFI_AUTH_OPEN;
