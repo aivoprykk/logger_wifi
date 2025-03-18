@@ -1,4 +1,10 @@
 menu "Logger Wifi Module Configuration"
+    config LOGGER_WIFI_ENABLED
+        bool "Enable Logger Wifi Module"
+        default y
+        help
+            Enable Logger Wifi Module
+    if LOGGER_WIFI_ENABLED
     config WIFI_TASK_STACK_SIZE
         int "Wifi Task stack size in bytes"
         default 2048
@@ -43,4 +49,5 @@ menu "Logger Wifi Module Configuration"
         default 3 if LOGGER_WIFI_LOG_LEVEL_ERROR
         default 4 if LOGGER_WIFI_LOG_LEVEL_USER
         default 5 if LOGGER_WIFI_LOG_LEVEL_NONE
+    endif
 endmenu

@@ -1,16 +1,15 @@
-#ifndef WIFI_H
-#define WIFI_H
-
-#include "esp_err.h"
-#include "esp_wifi.h"
+#ifndef BD855F76_0F67_4C33_A9AC_BFC741205190
+#define BD855F76_0F67_4C33_A9AC_BFC741205190
 
 #ifdef __cplusplus
 extern "C" {
 #endif
 
-struct context_s;
+#include "esp_wifi.h"
 
-extern const char * wifi_event_strings[];
+// struct context_s;
+
+const char * wifi_event_strings(int id);
 
 struct cfg_item {
   char ssid[32];
@@ -51,7 +50,7 @@ int wifi_sta_connect(uint16_t slot);
 int wifi_sta_connect_scan();
 void wifi_init();
 int wifi_uninit();
-esp_err_t wifi_disconnect();
+int wifi_disconnect();
 int wifi_mode(uint8_t sta, uint8_t ap);
 int wifi_status();
 int wifi_set_config(const char *ap_ssid, const char *ap_password, const char *sta_ssid, const char *sta_password);
@@ -65,10 +64,8 @@ void initialize_sntp(float offset);
 int uninitialize_sntp(void);
 //void obtain_sntp_time(void);
 void print_local_time();
-void uint8_to_hex_string(uint8_t value, char *hex_str);
-void mac_to_char(uint8_t *mac, char *mac_str, uint8_t start);
 
 #ifdef __cplusplus
 }
 #endif
-#endif
+#endif /* BD855F76_0F67_4C33_A9AC_BFC741205190 */

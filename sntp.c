@@ -1,3 +1,6 @@
+#include "logger_wifi_private.h"
+#ifdef CONFIG_LOGGER_WIFI_ENABLED
+
 #include <string.h>
 #include <sys/time.h>
 #include <time.h>
@@ -5,10 +8,8 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/event_groups.h"
 
-#include "esp_log.h"
 #include "esp_netif_sntp.h"
 #include "esp_sntp.h"
-#include "esp_wifi.h"
 
 #include "logger_wifi.h"
 #include "logger_events.h"
@@ -102,3 +103,5 @@ int uninitialize_sntp() {
 //     localtime_r(&now, &timeinfo);
 //     print_local_time();
 // }
+
+#endif  // CONFIG_LOGGER_WIFI_ENABLED
