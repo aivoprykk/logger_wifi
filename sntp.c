@@ -58,7 +58,7 @@ void sntp_sync_time(struct timeval *tv) {
 
 static void time_sync_notification_cb(struct timeval *tv) {
     ESP_LOGI(TAG, "[%s] Notification of a time synchronization event", __FUNCTION__);
-    ESP_ERROR_CHECK(esp_event_post(LOGGER_EVENT, LOGGER_EVENT_DATETIME_SET, NULL,0, portMAX_DELAY));
+    esp_event_post(LOGGER_EVENT, LOGGER_EVENT_DATETIME_SET, NULL,0, portMAX_DELAY);
 }
 
 static uint8_t sntp_initialized = 0;

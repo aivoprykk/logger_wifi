@@ -628,7 +628,7 @@ int wifi_sta_connect_scan() {
         uint16_t i, j;
         for (i = 0; (i < SCAN_LIST_SIZE) && (i < ap_count); ++i) {
 #if (C_LOG_LEVEL < 2)
-            DLOG(TAG, "* %s\t\t%d\d", ap_info[i].ssid, ap_info[i].rssi);
+            DLOG(TAG, "* %s\t\t%d\n", ap_info[i].ssid, ap_info[i].rssi);
 #endif
             for (j = 0; j < M_WIFI_STA_MAX; ++j) {
                 if (!wifi_context.stas[j].ssid[0])
