@@ -13,7 +13,9 @@
 
 #include "logger_wifi.h"
 #include "logger_events.h"
-
+#ifdef CONFIG_GPS_LOG_ENABLED
+#include "gps_user_cfg.h"
+#endif
 static const char *TAG = "sntp";
 
 void print_local_time() {
@@ -21,14 +23,15 @@ void print_local_time() {
     time_t now = 0;
     time(&now);
     localtime_r(&now, &timeinfo);
-    ESP_LOGI(TAG, "NTP Time = %02d-%02d-%d %02d:%02d:%02d", timeinfo.tm_mday, (timeinfo.tm_mon) + 1, (timeinfo.tm_year) + 1900, timeinfo.tm_hour, timeinfo.tm_min, timeinfo.tm_sec);
+    WLOG(TAG, "NTP Time = %02d-%02d-%d %02d:%02d:%02d", timeinfo.tm_mday, (timeinfo.tm_mon) + 1, (timeinfo.tm_year) + 1900, timeinfo.tm_hour, timeinfo.tm_min, timeinfo.tm_sec);
 }
 
 uint8_t set_time_zone(float offset) {
     //ESP_LOGI(TAG, "[%s]", __FUNCTION__);
-    const char *cst = 0;
-    uint16_t offh = offset > 1000 ? offset / 3600 : offset;
     uint8_t ret = 0;
+#if defined(DLS)
+    const char *cst = 0;
+    uint16_t offh = offset > 1000 ? SEC_TO_HOUR(offset) : offset;
     if (offh == 0) {
         cst = "GMTGMT-1,M3.4.0/01,M10.4.0/02";
     } else if (offh == 1) {
@@ -39,16 +42,23 @@ uint8_t set_time_zone(float offset) {
         cst = "GMT0";
         ret = 1;
     }
-    ESP_LOGI(TAG, "posix timezone: %s", cst);
+    ILOG(TAG, "posix timezone: %s", cst);
     setenv("TZ", cst, 1);
+#else
+    setenv("TZ", "UTC", 0);
+#endif
     tzset();
     return ret;
 }
 
 // #ifdef CONFIG_SNTP_TIME_SYNC_METHOD_CUSTOM
 void sntp_sync_time(struct timeval *tv) {
+#if CONFIG_GPS_LOG_ENABLED
+    tv->tv_sec += (time_t)HOUR_TO_SEC(c_gps_cfg.timezone);
+#endif
+    tv->tv_usec = 0;  // clean utc time !!
     settimeofday(tv, NULL);
-    ESP_LOGI(TAG, "[%s] Time is synchronized from custom code", __FUNCTION__);
+    ILOG(TAG, "[%s] Time is synchronized from custom code", __FUNCTION__);
     sntp_set_sync_status(SNTP_SYNC_STATUS_COMPLETED);
     //m_context.NTP_time_set = 1;
     esp_event_post(LOGGER_EVENT, LOGGER_EVENT_DATETIME_SET, NULL,0, portMAX_DELAY);
@@ -57,7 +67,7 @@ void sntp_sync_time(struct timeval *tv) {
 // #endif
 
 static void time_sync_notification_cb(struct timeval *tv) {
-    ESP_LOGI(TAG, "[%s] Notification of a time synchronization event", __FUNCTION__);
+    ILOG(TAG, "[%s] Notification of a time synchronization event", __FUNCTION__);
     esp_event_post(LOGGER_EVENT, LOGGER_EVENT_DATETIME_SET, NULL,0, portMAX_DELAY);
 }
 

@@ -11,3 +11,6 @@ idf_component_register(
 if(NOT ${IDF_TARGET} STREQUAL "linux" AND CONFIG_LOGGER_WIFI_ENABLED)
     target_link_libraries(${COMPONENT_LIB} PUBLIC idf::esp_wifi)
 endif()
+if(CONFIG_GPS_LOG_ENABLED)
+target_link_libraries(${COMPONENT_LIB} PRIVATE idf::gps_log)
+endif()

@@ -50,29 +50,7 @@ const char * wifi_event_strings(int id) {return "WIFI_EVENT";}
  const char *ssid = "";                     // WiFi SSID
  const char *password = "";                 // WiFi Password */
 
-struct m_wifi_context wifi_context = {
-    .Wifi_on = 0,
-        .s_ap_connection = 0,
-        .s_wifi_started = 0,
-        .s_wifi_initialized = 0,
-        .s_nvs_initialized = 0,
-        .s_sta_connection = 0,
-        .s_sta_connecting = 0,
-        .s_sta_connected = 0,
-        .s_sta_got_ip = 0,
-        .s_sta_connect_not_found = 0, 
-        .s_sta_connect_error = 0,
-        .s_retry_num=10,
-        .s_sta_num_connect = M_WIFI_STA_MAX + 1,
-        .s_wifi_mode = WIFI_MODE_APSTA,
-        .ap = {"ESP32AP", "password",{10, 10, 10, 1}, {255, 255, 255, 0}, {10, 10, 10, 1}},
-        .stas = {
-            {"", "", {0, 0, 0, 0}, {0, 0, 0, 0}, {0, 0, 0, 0}},
-            {"", "", {0, 0, 0, 0}, {0, 0, 0, 0}, {0, 0, 0, 0}},
-            {"", "", {0, 0, 0, 0}, {0, 0, 0, 0}, {0, 0, 0, 0}},
-            {"", "", {0, 0, 0, 0}, {0, 0, 0, 0}, {0, 0, 0, 0}},
-        },
-        .hostname = {0}};
+struct m_wifi_context wifi_context = WIFI_CONTEXT_DEFAULT();
 
 static esp_netif_t *s_sta_netif = 0;  // NOLINT(cppcoreguidelines-avoid-non-const-global-variables)
 static esp_netif_t *s_ap_netif = 0;  // NOLINT(cppcoreguidelines-avoid-non-const-global-variables)
@@ -175,7 +153,7 @@ static void wifi_event_handler(void *arg, esp_event_base_t event_base, int32_t e
         switch(event_id) {
             case IP_EVENT_STA_GOT_IP:
                 event = (ip_event_got_ip_t *)event_data;
-#if (C_LOG_LEVEL < 2)    
+#if (C_LOG_LEVEL < 4)    
                 ESP_LOGW(TAG, "[%s] IP_EVENT -> IP_EVENT_STA_GOT_IP: " IPSTR, __FUNCTION__, IP2STR(&event->ip_info.ip));
 #endif
                 uint32_to_uint8_array(event->ip_info.ip.addr, wifi_context.stas[wifi_context.s_sta_num_connect].ipv4_address);
@@ -333,7 +311,8 @@ int wifi_mode(uint8_t sta, uint8_t ap) {
     wifi_mode_t set_mode;
     if (set_sta && set_ap) {
         set_mode = WIFI_MODE_APSTA;
-    } else if (set_sta && !set_ap) {
+    } else 
+    if (set_sta && !set_ap) {
         set_mode = WIFI_MODE_STA;
     } else if (!set_sta && set_ap) {
         set_mode = WIFI_MODE_AP;
