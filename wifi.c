@@ -23,7 +23,7 @@
 
 #define TAG "wifi"
 #define IPIPSTR(a) a[0], a[1], a[2], a[3]
-#if (C_LOG_LEVEL < 2)
+#if (C_LOG_LEVEL < 3)
 static const char * _wifi_event_strings[] = {
   "WIFI_EVENT_WIFI_READY",
   "WIFI_EVENT_SCAN_DONE",

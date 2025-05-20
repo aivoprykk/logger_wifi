@@ -79,7 +79,7 @@ struct m_wifi_context {
         .s_retry_num=10,  \
         .s_sta_num_connect = M_WIFI_STA_MAX + 1, \
         .s_wifi_mode = wifi_mode_ap, \
-        .ap = {"ESP32AP","password",{10,1,10,1},{255,255,255,0},{10,1,10,1}}, \
+        .ap = {"ESP32AP","password",{10,10,10,1},{255,255,255,0},{10,10,10,1}}, \
         .stas = { \
             WIFI_CFG_ITEM_DEFAULT(""), \
             WIFI_CFG_ITEM_DEFAULT(""), \
