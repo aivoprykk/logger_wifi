@@ -85,7 +85,10 @@ static void wifi_event_handler(void *arg, esp_event_base_t event_base, int32_t e
 #if (C_LOG_LEVEL < 3)
                 WLOG(TAG, "[%s] WIFI_EVENT -> %s", __FUNCTION__, wifi_event_strings(event_id));
 #endif
-                // xEventGroupSetBits(s_wifi_event_group, WIFI_CONNECTED_BIT);
+                // Clear any previous bits when starting
+                if(s_wifi_event_group) {
+                    xEventGroupClearBits(s_wifi_event_group, WIFI_CONNECTED_BIT | WIFI_FAIL_BIT);
+                }
                 wifi_context.s_sta_connection = 1;
                 wifi_sta_connect_scan();  // try station mode first
                 break;
@@ -94,8 +97,10 @@ static void wifi_event_handler(void *arg, esp_event_base_t event_base, int32_t e
                 WLOG(TAG, "[%s] WIFI_EVENT -> %s", __FUNCTION__, wifi_event_strings(event_id));
 #endif
                 wifi_context.s_sta_connection = 0;
-                if(s_wifi_event_group)
+                if(s_wifi_event_group) {
+                    xEventGroupClearBits(s_wifi_event_group, WIFI_CONNECTED_BIT);
                     xEventGroupSetBits(s_wifi_event_group, WIFI_FAIL_BIT);
+                }
                 break;
             case WIFI_EVENT_STA_CONNECTED:  // 4
 #if (C_LOG_LEVEL < 3)
@@ -103,15 +108,21 @@ static void wifi_event_handler(void *arg, esp_event_base_t event_base, int32_t e
                 ILOG(TAG, "[%s]  WIFI_EVENT -> %s. ssid:%s", __FUNCTION__, wifi_event_strings(event_id), staconnevent->ssid);
 #endif
                 wifi_context.s_sta_connected = 1;
+                // Clear FAIL bit when successfully connected
+                if(s_wifi_event_group) {
+                    xEventGroupClearBits(s_wifi_event_group, WIFI_FAIL_BIT);
+                }
                 break;
             case WIFI_EVENT_STA_DISCONNECTED:  // 5
 #if (C_LOG_LEVEL < 3)
                 const wifi_event_sta_disconnected_t * stadisconnevent = (wifi_event_sta_disconnected_t *)event_data;
                 ILOG(TAG, "[%s]  WIFI_EVENT -> %s. ssid:%s", __FUNCTION__, wifi_event_strings(event_id), stadisconnevent->ssid);
 #endif
-                if(s_wifi_event_group)
-                    xEventGroupSetBits(s_wifi_event_group, WIFI_FAIL_BIT);
                 wifi_context.s_sta_connected = 0;
+                if(s_wifi_event_group) {
+                    xEventGroupClearBits(s_wifi_event_group, WIFI_CONNECTED_BIT);
+                    xEventGroupSetBits(s_wifi_event_group, WIFI_FAIL_BIT);
+                }
                 if (wifi_context.s_retry_num && (wifi_context.s_wifi_mode == WIFI_MODE_STA || wifi_context.s_wifi_mode == WIFI_MODE_APSTA)) {
                     ESP_LOGW(TAG, "[%s] %s.", __FUNCTION__, wifi_event_strings(event_id));
                     wifi_sta_connect_scan();
@@ -169,8 +180,10 @@ static void wifi_event_handler(void *arg, esp_event_base_t event_base, int32_t e
                     }
 #endif
                 }
-                if(s_wifi_event_group)
+                if(s_wifi_event_group) {
+                    xEventGroupClearBits(s_wifi_event_group, WIFI_FAIL_BIT);
                     xEventGroupSetBits(s_wifi_event_group, WIFI_CONNECTED_BIT);
+                }
                 break;
             case IP_EVENT_STA_LOST_IP:
                 event = (ip_event_got_ip_t *)event_data;
@@ -187,8 +200,10 @@ static void wifi_event_handler(void *arg, esp_event_base_t event_base, int32_t e
                     esp_netif_napt_disable(s_ap_netif);
 #endif
                 }
-                if(s_wifi_event_group)
+                if(s_wifi_event_group) {
+                    xEventGroupClearBits(s_wifi_event_group, WIFI_CONNECTED_BIT);
                     xEventGroupSetBits(s_wifi_event_group, WIFI_FAIL_BIT);
+                }
                 break;
             default:
                 break;
@@ -197,13 +212,19 @@ static void wifi_event_handler(void *arg, esp_event_base_t event_base, int32_t e
 #if (C_LOG_LEVEL < 2)
         WLOG(TAG, "[%s] - -> %s", __FUNCTION__, wifi_event_strings(3));
 #endif
-        if(s_wifi_event_group)
+        if(s_wifi_event_group) {
+            xEventGroupClearBits(s_wifi_event_group, WIFI_CONNECTED_BIT);
             xEventGroupSetBits(s_wifi_event_group, WIFI_FAIL_BIT);
+        }
         wifi_context.s_sta_connection = 0;
     } else if (event_id == WIFI_EVENT_STA_START) {
 #if (C_LOG_LEVEL < 2)
         WLOG(TAG, "[%s] - -> %s", __FUNCTION__, wifi_event_strings(event_id));
 #endif
+        // Clear any previous bits when starting
+        if(s_wifi_event_group) {
+            xEventGroupClearBits(s_wifi_event_group, WIFI_CONNECTED_BIT | WIFI_FAIL_BIT);
+        }
         wifi_context.s_sta_connection = 1;
         wifi_sta_connect_scan();  // try station mode first
     } else if (event_id == WIFI_EVENT_AP_START) {
@@ -562,10 +583,11 @@ int wifi_status() {
     }
     if (wifi_context.s_ap_connection == 1)
         return 2;
-    EventBits_t bits = xEventGroupWaitBits(s_wifi_event_group, WIFI_CONNECTED_BIT | WIFI_FAIL_BIT, pdFALSE, pdFALSE, 1000 / portTICK_PERIOD_MS);
+    EventBits_t bits = xEventGroupWaitBits(s_wifi_event_group, WIFI_CONNECTED_BIT | WIFI_FAIL_BIT, pdTRUE, pdFALSE, 1000 / portTICK_PERIOD_MS);
     
     /* xEventGroupWaitBits() returns the bits before the call returned, hence we
-     * can test which event actually happened. */
+     * can test which event actually happened. Using pdTRUE for xClearOnExit
+     * to prevent stale bits from affecting future calls. */
     
     if (bits & WIFI_CONNECTED_BIT) {
         // ILOG(TAG, "[%s] WIFI_CONNECTED_BIT %d\n", __FUNCTION__, wifi_context.s_ap_connection);
@@ -607,14 +629,14 @@ int wifi_sta_connect_scan() {
         uint16_t i, j;
         for (i = 0; (i < SCAN_LIST_SIZE) && (i < ap_count); ++i) {
 #if (C_LOG_LEVEL < 2)
-            DLOG(TAG, "* %s\t\t%d\n", ap_info[i].ssid, ap_info[i].rssi);
+            DLOG(TAG, "* %s\t\t%d", ap_info[i].ssid, ap_info[i].rssi);
 #endif
             for (j = 0; j < M_WIFI_STA_MAX; ++j) {
                 if (!wifi_context.stas[j].ssid[0])
                     continue;
                 if (!strcmp((char*)&(ap_info[i].ssid[0]), &(wifi_context.stas[j].ssid[0]))) {
 #if (C_LOG_LEVEL < 2)
-                    DLOG(TAG, "[%s] found %s\n", __FUNCTION__, wifi_context.stas[j].ssid);
+                    DLOG(TAG, "[%s] found %s", __FUNCTION__, wifi_context.stas[j].ssid);
 #endif
                     k = j;
                     goto found;
