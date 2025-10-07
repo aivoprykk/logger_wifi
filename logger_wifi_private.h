@@ -10,6 +10,7 @@ extern "C" {
 #include "esp_wifi.h"
 #endif
 
+
 #include "logger_wifi.h"
 #if (defined(CONFIG_LOGGER_USE_GLOBAL_LOG_LEVEL) && CONFIG_LOGGER_GLOBAL_LOG_LEVEL < CONFIG_LOGGER_WIFI_LOG_LEVEL)
 #define C_LOG_LEVEL CONFIG_LOGGER_GLOBAL_LOG_LEVEL

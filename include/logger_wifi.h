@@ -2,10 +2,17 @@
 #define BD855F76_0F67_4C33_A9AC_BFC741205190
 
 #ifdef __cplusplus
-extern "C" {
+  extern "C" {
 #endif
 
 #include "esp_wifi.h"
+#include "freertos/event_groups.h"
+
+// WiFi event group bits
+#define WIFI_CONNECTED_BIT BIT0     // STA connected and has IP
+#define WIFI_FAIL_BIT BIT1          // STA connection failed
+#define WIFI_TIME_SYNC_BIT BIT2     // Time synchronized via SNTP
+#define WIFI_AP_READY_BIT BIT3      // AP mode fully initialized
 
 // struct context_s;
 #define WIFI_MODES_LIST(l) \
@@ -61,6 +68,7 @@ struct m_wifi_context {
   struct cfg_item stas[M_WIFI_STA_MAX];
   char hostname[32];
   float offset;
+  EventGroupHandle_t s_wifi_event_group;  // Event group for WiFi state synchronization
   //struct context_s * m_context;
 };
 
@@ -86,20 +94,45 @@ struct m_wifi_context {
             WIFI_CFG_ITEM_DEFAULT(""), \
             WIFI_CFG_ITEM_DEFAULT(""), \
         }, \
-        .hostname = {0} \
+        .hostname = {0}, \
+        .offset = 0.0, \
+        .s_wifi_event_group = NULL, \
 }
+
+extern struct m_wifi_context wifi_context;
 
 int wifi_ap_start();
 int wifi_sta_connect(uint16_t slot);
 int wifi_sta_connect_scan();
 void wifi_init();
 int wifi_uninit();
-int wifi_disconnect();
 int wifi_mode(uint8_t sta, uint8_t ap);
 int wifi_status();
+int wifi_wait_for_connection(uint32_t timeout_ms);
+int wifi_wait_for_ap_ready(uint32_t timeout_ms);
+int wifi_wait_for_time_sync(uint32_t timeout_ms);
 int wifi_set_config(const char *ap_ssid, const char *ap_password, const char *sta_ssid, const char *sta_password);
 int wifi_sta_set_config(int num, const char *sta_ssid, const char *sta_password);
 int wifi_ap_set_config(const char *ap_ssid, const char *ap_password);
+void wifi_sta_conf_sync(void);  // Sync configuration before mode change
+
+// WiFi mode change handling with callback support for external dependencies
+typedef struct {
+    void (*before_mode_change)(void);      // Called before mode change (e.g., ADC suppression, config sync)
+    void (*after_mode_change_complete)(void); // Called after mode change is complete (e.g., ADC resumption)
+} wifi_mode_change_callbacks_t;
+
+void wifi_set_mode_change_callbacks(const wifi_mode_change_callbacks_t* callbacks);
+int wifi_request_mode_change(void);  // Unified mode change with callback support
+
+// Memory monitoring and diagnostics
+void wifi_log_memory_usage(const char* context);
+void wifi_prepare_memory_for_gps(void);  // Aggressive memory cleanup for GPS mode
+
+uint8_t set_time_zone(float offset);
+void initialize_sntp(float offset);
+int uninitialize_sntp();
+int wifi_wait_for_time_sync(uint32_t timeout_ms);
 
 // SNTP
 

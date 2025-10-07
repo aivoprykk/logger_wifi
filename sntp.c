@@ -71,19 +71,25 @@ void sntp_sync_time(struct timeval *tv) {
 #endif
     }
     sntp_set_sync_status(SNTP_SYNC_STATUS_COMPLETED);
-    //m_context.NTP_time_set = 1;
+    
+    // Set time sync bit for task synchronization
+    if (wifi_context.s_wifi_event_group) {
+        xEventGroupSetBits(wifi_context.s_wifi_event_group, WIFI_TIME_SYNC_BIT);
+    }
+    
     esp_event_post(LOGGER_EVENT, LOGGER_EVENT_DATETIME_SET, NULL,0, portMAX_DELAY);
     print_local_time();
 }
 // #endif
 
 static void time_sync_notification_cb(struct timeval *tv) {
-    ILOG(TAG, "[%s] Notification of a time synchronization event", __FUNCTION__);
+    FUNC_ENTRY_ARGS(TAG, " Notification of a time synchronization event");
     esp_event_post(LOGGER_EVENT, LOGGER_EVENT_DATETIME_SET, NULL,0, portMAX_DELAY);
 }
 
 static uint8_t sntp_initialized = 0;
 void initialize_sntp(float offset) {
+    FUNC_ENTRY_ARGS(TAG, "offset=%.1f", offset);
     if (sntp_initialized)
         return;
     //ESP_LOGI(TAG, "[%s]", __FUNCTION__);
@@ -105,12 +111,36 @@ void initialize_sntp(float offset) {
 }
 
 int uninitialize_sntp() {
+    FUNC_ENTRY(TAG);
     //ESP_LOGI(TAG, "[%s]", __FUNCTION__);
     if (sntp_initialized) {
         esp_netif_sntp_deinit();
         sntp_initialized = 0;
+        
+        // Clear time sync bit
+        if (wifi_context.s_wifi_event_group) {
+            xEventGroupClearBits(wifi_context.s_wifi_event_group, WIFI_TIME_SYNC_BIT);
+        }
     }
     return ESP_OK;
+}
+
+int wifi_wait_for_time_sync(uint32_t timeout_ms) {
+    if (!wifi_context.s_wifi_event_group) {
+        ELOG(TAG, "[%s] WiFi event group not initialized", __FUNCTION__);
+        return ESP_FAIL;
+    }
+    
+    EventBits_t bits = xEventGroupWaitBits(wifi_context.s_wifi_event_group, 
+                                           WIFI_TIME_SYNC_BIT, 
+                                           pdFALSE, pdFALSE, 
+                                           timeout_ms / portTICK_PERIOD_MS);
+    
+    if (bits & WIFI_TIME_SYNC_BIT) {
+        return ESP_OK;  // Time synchronized
+    } else {
+        return ESP_ERR_TIMEOUT;  // Timeout occurred
+    }
 }
 
 // void obtain_sntp_time(void) {
