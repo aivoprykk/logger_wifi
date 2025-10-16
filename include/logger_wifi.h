@@ -69,7 +69,6 @@ struct m_wifi_context {
   char hostname[32];
   float offset;
   EventGroupHandle_t s_wifi_event_group;  // Event group for WiFi state synchronization
-  //struct context_s * m_context;
 };
 
 #define WIFI_CONTEXT_DEFAULT() { \

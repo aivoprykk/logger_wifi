@@ -90,7 +90,7 @@ static void wifi_event_handler(void *arg, esp_event_base_t event_base, int32_t e
         switch (event_id) {
             case WIFI_EVENT_STA_START:  // 2
 #if (C_LOG_LEVEL < 3)
-                WLOG(TAG, "[%s] WIFI_EVENT -> %s", __FUNCTION__, wifi_event_strings(event_id));
+                WLOG(TAG, "[%s] %s", __FUNCTION__, wifi_event_strings(event_id));
 #endif
                 // Clear any previous bits when starting
                 if(wifi_context.s_wifi_event_group) {
@@ -107,7 +107,7 @@ static void wifi_event_handler(void *arg, esp_event_base_t event_base, int32_t e
                 break;
             case WIFI_EVENT_STA_STOP:  // 3
 #if (C_LOG_LEVEL < 3)
-                WLOG(TAG, "[%s] WIFI_EVENT -> %s", __FUNCTION__, wifi_event_strings(event_id));
+                WLOG(TAG, "[%s] %s", __FUNCTION__, wifi_event_strings(event_id));
 #endif
                 wifi_context.s_sta_connection = 0;
                 if(wifi_context.s_wifi_event_group) {
@@ -118,7 +118,7 @@ static void wifi_event_handler(void *arg, esp_event_base_t event_base, int32_t e
             case WIFI_EVENT_STA_CONNECTED:  // 4
 #if (C_LOG_LEVEL < 3)
                 const wifi_event_sta_connected_t * staconnevent = (wifi_event_sta_connected_t *)event_data;
-                FUNC_ENTRY_ARGS(TAG, " WIFI_EVENT -> %s. ssid:%s", wifi_event_strings(event_id), staconnevent->ssid);
+                FUNC_ENTRY_ARGS(TAG, " %s, ssid:%s", wifi_event_strings(event_id), staconnevent->ssid);
 #endif
                 wifi_context.s_sta_connected = 1;
                 // Clear FAIL bit when successfully connected
@@ -129,7 +129,7 @@ static void wifi_event_handler(void *arg, esp_event_base_t event_base, int32_t e
             case WIFI_EVENT_STA_DISCONNECTED:  // 5
 #if (C_LOG_LEVEL < 3)
                 const wifi_event_sta_disconnected_t * stadisconnevent = (wifi_event_sta_disconnected_t *)event_data;
-                FUNC_ENTRY_ARGS(TAG, " WIFI_EVENT -> %s. ssid:%s", wifi_event_strings(event_id), stadisconnevent->ssid);
+                FUNC_ENTRY_ARGS(TAG, " %s, ssid:%s", wifi_event_strings(event_id), stadisconnevent->ssid);
 #endif
                 wifi_context.s_sta_connected = 0;
                 if(wifi_context.s_wifi_event_group) {
@@ -144,7 +144,7 @@ static void wifi_event_handler(void *arg, esp_event_base_t event_base, int32_t e
                 break;
             case WIFI_EVENT_AP_START:
 #if (C_LOG_LEVEL < 3)
-                FUNC_ENTRY_ARGS(TAG, " WIFI_EVENT -> %s.", wifi_event_strings(event_id));
+                FUNC_ENTRY_ARGS(TAG, " %s", wifi_event_strings(event_id));
 #endif
                 // sprintf(wifi_context.ip_address, IPSTR, IPIPSTR(wifi_context.ap.ipv4_address));
                 wifi_context.s_ap_connection = 1;
@@ -161,7 +161,7 @@ static void wifi_event_handler(void *arg, esp_event_base_t event_base, int32_t e
                 break;
             case WIFI_EVENT_AP_STOP:
 #if (C_LOG_LEVEL < 2)
-                FUNC_ENTRY_ARGS(TAG, " WIFI_EVENT -> %s.", wifi_event_strings(event_id));
+                FUNC_ENTRY_ARGS(TAG, " %s", wifi_event_strings(event_id));
 #endif
                 wifi_context.s_ap_connection = 0;
                 // Clear AP ready bit
@@ -172,12 +172,11 @@ static void wifi_event_handler(void *arg, esp_event_base_t event_base, int32_t e
 #if (C_LOG_LEVEL < 2)
             case WIFI_EVENT_AP_STACONNECTED:
                 const wifi_event_ap_staconnected_t * apstaconnevent = (wifi_event_ap_staconnected_t *)event_data;
-                //memcpy(wifi_context.m_context->mac, apstaconnevent->mac, 6);
-                FUNC_ENTRY_ARGS(TAG, " WIFI_EVENT -> %s. " MACSTR " join, AID=%d", wifi_event_strings(event_id), MAC2STR(apstaconnevent->mac), apstaconnevent->aid);
+                FUNC_ENTRY_ARGS(TAG, " %s. " MACSTR " join, AID=%d", wifi_event_strings(event_id), MAC2STR(apstaconnevent->mac), apstaconnevent->aid);
                 break;
             case WIFI_EVENT_AP_STADISCONNECTED:
                 const wifi_event_ap_stadisconnected_t * apstadisconnevent = (wifi_event_ap_stadisconnected_t *)event_data;
-                FUNC_ENTRY_ARGS(TAG, " WIFI_EVENT -> %s. " MACSTR " leave, AID=%d", wifi_event_strings(event_id), MAC2STR(apstadisconnevent->mac), apstadisconnevent->aid);
+                FUNC_ENTRY_ARGS(TAG, " %s. " MACSTR " leave, AID=%d", wifi_event_strings(event_id), MAC2STR(apstadisconnevent->mac), apstadisconnevent->aid);
                 break;
             case WIFI_EVENT_MAX:
                 FUNC_ENTRY_ARGS(TAG, " WIFI_EVENT_MAX.");
@@ -191,9 +190,7 @@ static void wifi_event_handler(void *arg, esp_event_base_t event_base, int32_t e
         switch(event_id) {
             case IP_EVENT_STA_GOT_IP:
                 event = (ip_event_got_ip_t *)event_data;
-#if (C_LOG_LEVEL < 4)    
                 WLOG(TAG, "[%s] IP_EVENT -> IP_EVENT_STA_GOT_IP: " IPSTR, __FUNCTION__, IP2STR(&event->ip_info.ip));
-#endif
                 uint32_to_uint8_array(event->ip_info.ip.addr, wifi_context.stas[wifi_context.s_sta_num_connect].ipv4_address);
                 uint32_to_uint8_array(event->ip_info.netmask.addr, wifi_context.stas[wifi_context.s_sta_num_connect].ipv4_netmask);
                 uint32_to_uint8_array(event->ip_info.gw.addr, wifi_context.stas[wifi_context.s_sta_num_connect].ipv4_gw);
@@ -317,7 +314,7 @@ int wifi_uninit() {
     wifi_log_memory_usage("Before WiFi Uninit");
     
     if (!wifi_context.s_wifi_initialized) {
-        WLOG(TAG, "[%s] WiFi not initialized, nothing to cleanup", __FUNCTION__);
+        // WLOG(TAG, "[%s] WiFi not initialized, nothing to cleanup", __FUNCTION__);
         return 1;
     }
 
@@ -958,6 +955,7 @@ void wifi_log_memory_usage(const char* context) {
     const char* netif_sta_state = s_sta_netif ? "exists" : "NULL";
     const char* netif_ap_state = s_ap_netif ? "exists" : "NULL";
     
+#if C_LOG_LEVEL < 2
     printf("=== Memory Usage [%s] ===\n", context);
     printf("Free heap: %zu bytes, Min free: %zu bytes\n", free_heap, min_free_heap);
     printf("Free internal: %zu bytes, Largest block: %zu bytes\n", free_internal, largest_free_block);
@@ -965,9 +963,11 @@ void wifi_log_memory_usage(const char* context) {
     printf("Event handlers: WiFi=%p, IP=%p\n", (void*)instance_wifi_id, (void*)instance_ip_id);
     printf("Event group: %p\n", (void*)wifi_context.s_wifi_event_group);
     printf("=====================================\n");
+#endif
 }
 
 void wifi_prepare_memory_for_gps(void) {
+#if C_LOG_LEVEL < 2
     ILOG("MEM", "=== Preparing Memory for GPS Mode ===");
     
     size_t mem_before = esp_get_free_heap_size();
@@ -981,14 +981,14 @@ void wifi_prepare_memory_for_gps(void) {
     
     // Quick memory consolidation - optimized for speed
     ILOG("MEM", "Optimizing memory layout for GPS...");
-    
+#endif
     // Fast consolidation phase - 2 quick cleanup triggers
     esp_get_free_heap_size(); // First trigger
     vTaskDelay(pdMS_TO_TICKS(50));
     
     esp_get_free_heap_size(); // Second trigger  
     vTaskDelay(pdMS_TO_TICKS(100));
-    
+#if C_LOG_LEVEL < 2    
     // Final check and report
     size_t mem_after = esp_get_free_heap_size();
     size_t mem_after_internal = heap_caps_get_free_size(MALLOC_CAP_INTERNAL);
@@ -1013,6 +1013,7 @@ void wifi_prepare_memory_for_gps(void) {
     
     ILOG("MEM", "Memory optimization complete - GPS initialization ready");
     ILOG("MEM", "==========================================");
+#endif
 }
 
 // WiFi mode change handling with callback support
