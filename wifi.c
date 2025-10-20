@@ -24,7 +24,7 @@
 
 #define TAG "wifi"
 #define IPIPSTR(a) a[0], a[1], a[2], a[3]
-#if (C_LOG_LEVEL < 3)
+#if (C_LOG_LEVEL <= LOG_INFO_NUM)
 static const char * _wifi_event_strings[] = {
   "WIFI_EVENT_WIFI_READY",           // 0
   "WIFI_EVENT_SCAN_DONE",            // 1
@@ -89,9 +89,7 @@ static void wifi_event_handler(void *arg, esp_event_base_t event_base, int32_t e
     if (event_base == WIFI_EVENT) {
         switch (event_id) {
             case WIFI_EVENT_STA_START:  // 2
-#if (C_LOG_LEVEL < 3)
-                WLOG(TAG, "[%s] %s", __FUNCTION__, wifi_event_strings(event_id));
-#endif
+                ILOG(TAG, "[%s] %s", __FUNCTION__, wifi_event_strings(event_id));
                 // Clear any previous bits when starting
                 if(wifi_context.s_wifi_event_group) {
                     xEventGroupClearBits(wifi_context.s_wifi_event_group, WIFI_CONNECTED_BIT | WIFI_FAIL_BIT);
@@ -106,9 +104,7 @@ static void wifi_event_handler(void *arg, esp_event_base_t event_base, int32_t e
                 }
                 break;
             case WIFI_EVENT_STA_STOP:  // 3
-#if (C_LOG_LEVEL < 3)
-                WLOG(TAG, "[%s] %s", __FUNCTION__, wifi_event_strings(event_id));
-#endif
+                ILOG(TAG, "[%s] %s", __FUNCTION__, wifi_event_strings(event_id));
                 wifi_context.s_sta_connection = 0;
                 if(wifi_context.s_wifi_event_group) {
                     xEventGroupClearBits(wifi_context.s_wifi_event_group, WIFI_CONNECTED_BIT);
@@ -116,7 +112,7 @@ static void wifi_event_handler(void *arg, esp_event_base_t event_base, int32_t e
                 }
                 break;
             case WIFI_EVENT_STA_CONNECTED:  // 4
-#if (C_LOG_LEVEL < 3)
+#if (C_LOG_LEVEL <= LOG_INFO_NUM)
                 const wifi_event_sta_connected_t * staconnevent = (wifi_event_sta_connected_t *)event_data;
                 FUNC_ENTRY_ARGS(TAG, " %s, ssid:%s", wifi_event_strings(event_id), staconnevent->ssid);
 #endif
@@ -127,7 +123,7 @@ static void wifi_event_handler(void *arg, esp_event_base_t event_base, int32_t e
                 }
                 break;
             case WIFI_EVENT_STA_DISCONNECTED:  // 5
-#if (C_LOG_LEVEL < 3)
+#if (C_LOG_LEVEL <= LOG_INFO_NUM)
                 const wifi_event_sta_disconnected_t * stadisconnevent = (wifi_event_sta_disconnected_t *)event_data;
                 FUNC_ENTRY_ARGS(TAG, " %s, ssid:%s", wifi_event_strings(event_id), stadisconnevent->ssid);
 #endif
@@ -143,9 +139,7 @@ static void wifi_event_handler(void *arg, esp_event_base_t event_base, int32_t e
                 }
                 break;
             case WIFI_EVENT_AP_START:
-#if (C_LOG_LEVEL < 3)
                 FUNC_ENTRY_ARGS(TAG, " %s", wifi_event_strings(event_id));
-#endif
                 // sprintf(wifi_context.ip_address, IPSTR, IPIPSTR(wifi_context.ap.ipv4_address));
                 wifi_context.s_ap_connection = 1;
                 // Set AP ready bit for task synchronization
@@ -160,26 +154,24 @@ static void wifi_event_handler(void *arg, esp_event_base_t event_base, int32_t e
                 }
                 break;
             case WIFI_EVENT_AP_STOP:
-#if (C_LOG_LEVEL < 2)
-                FUNC_ENTRY_ARGS(TAG, " %s", wifi_event_strings(event_id));
-#endif
+                FUNC_ENTRY_ARGSD(TAG, " %s", wifi_event_strings(event_id));
                 wifi_context.s_ap_connection = 0;
                 // Clear AP ready bit
                 if(wifi_context.s_wifi_event_group) {
                     xEventGroupClearBits(wifi_context.s_wifi_event_group, WIFI_AP_READY_BIT);
                 }
                 break;
-#if (C_LOG_LEVEL < 2)
+#if (C_LOG_LEVEL <= LOG_DEBUG_NUM)
             case WIFI_EVENT_AP_STACONNECTED:
                 const wifi_event_ap_staconnected_t * apstaconnevent = (wifi_event_ap_staconnected_t *)event_data;
-                FUNC_ENTRY_ARGS(TAG, " %s. " MACSTR " join, AID=%d", wifi_event_strings(event_id), MAC2STR(apstaconnevent->mac), apstaconnevent->aid);
+                FUNC_ENTRY_ARGSD(TAG, " %s. " MACSTR " join, AID=%d", wifi_event_strings(event_id), MAC2STR(apstaconnevent->mac), apstaconnevent->aid);
                 break;
             case WIFI_EVENT_AP_STADISCONNECTED:
                 const wifi_event_ap_stadisconnected_t * apstadisconnevent = (wifi_event_ap_stadisconnected_t *)event_data;
-                FUNC_ENTRY_ARGS(TAG, " %s. " MACSTR " leave, AID=%d", wifi_event_strings(event_id), MAC2STR(apstadisconnevent->mac), apstadisconnevent->aid);
+                FUNC_ENTRY_ARGSD(TAG, " %s. " MACSTR " leave, AID=%d", wifi_event_strings(event_id), MAC2STR(apstadisconnevent->mac), apstadisconnevent->aid);
                 break;
             case WIFI_EVENT_MAX:
-                FUNC_ENTRY_ARGS(TAG, " WIFI_EVENT_MAX.");
+                FUNC_ENTRY_ARGSD(TAG, " WIFI_EVENT_MAX.");
                 break;
 #endif
             default:
@@ -213,9 +205,7 @@ static void wifi_event_handler(void *arg, esp_event_base_t event_base, int32_t e
                 break;
             case IP_EVENT_STA_LOST_IP:
                 event = (ip_event_got_ip_t *)event_data;
-#if (C_LOG_LEVEL < 2)
-                WLOG(TAG, "[%s] IP_EVENT -> IP_EVENT_STA_LOST_IP:" IPSTR, __FUNCTION__, IP2STR(&event->ip_info.ip));
-#endif
+                DLOG(TAG, "[%s] IP_EVENT -> IP_EVENT_STA_LOST_IP:" IPSTR, __FUNCTION__, IP2STR(&event->ip_info.ip));
                 memset(wifi_context.stas[wifi_context.s_sta_num_connect].ipv4_address,0, 4);
                 memset(wifi_context.stas[wifi_context.s_sta_num_connect].ipv4_netmask,0, 4);
                 memset(wifi_context.stas[wifi_context.s_sta_num_connect].ipv4_gw,0, 4);
@@ -245,7 +235,7 @@ int shutdown_wifi_and_cleanup(void) {
     
     // Stop SNTP first to prevent any ongoing network operations
     ret = uninitialize_sntp();
-#if (C_LOG_LEVEL < 3)
+#if (C_LOG_LEVEL <= LOG_INFO_NUM)
     if (ret != ESP_OK) {
         WLOG(TAG, "[%s] uninitialize_sntp failed: %s", __FUNCTION__, esp_err_to_name(ret));
     }
@@ -501,12 +491,10 @@ int wifi_mode(uint8_t sta, uint8_t ap) {
     } else {
         set_mode = WIFI_MODE_NULL;
     }
-#if (C_LOG_LEVEL < 2)    
-    WLOG(TAG, "[%s] set (sta: %d, ap: %d, next: %d)", __FUNCTION__, set_sta, set_ap, set_mode);
-#endif
+    DLOG(TAG, "[%s] set (sta: %d, ap: %d, next: %d)", __FUNCTION__, set_sta, set_ap, set_mode);
     if (current_mode == set_mode)
         return 1;
-#if (C_LOG_LEVEL < 2)
+#if (C_LOG_LEVEL <= LOG_DEBUG_NUM)
     if (set_sta && !current_sta) {
         FUNC_ENTRY_ARGS(TAG, "Enabling STA.");
     } else if (!set_sta && current_sta) {
@@ -541,7 +529,7 @@ int wifi_mode(uint8_t sta, uint8_t ap) {
             return 0;
         }
     }
-#if (C_LOG_LEVEL < 2) 
+#if (C_LOG_LEVEL <= LOG_DEBUG_NUM) 
     else if (!set_ap && current_ap) {
         DLOG(TAG, "[%s] Disabling AP.", __FUNCTION__);
     }
@@ -780,9 +768,7 @@ int wifi_sta_connect(uint16_t slot) {
     wifi_context.s_sta_got_ip = false;
     wifi_context.s_sta_connect_error = false;
     wifi_context.s_sta_connect_not_found = false;
-#if (C_LOG_LEVEL < 3)    
     FUNC_ENTRY_ARGS(TAG, " esp_wifi_connect %s", conf.sta.ssid);
-#endif
     // Initialize SNTP but don't start until connection is confirmed
     initialize_sntp(wifi_context.offset);
     err = esp_wifi_connect();
@@ -955,7 +941,7 @@ void wifi_log_memory_usage(const char* context) {
     const char* netif_sta_state = s_sta_netif ? "exists" : "NULL";
     const char* netif_ap_state = s_ap_netif ? "exists" : "NULL";
     
-#if C_LOG_LEVEL < 2
+#if C_LOG_LEVEL <= LOG_DEBUG_NUM
     printf("=== Memory Usage [%s] ===\n", context);
     printf("Free heap: %zu bytes, Min free: %zu bytes\n", free_heap, min_free_heap);
     printf("Free internal: %zu bytes, Largest block: %zu bytes\n", free_internal, largest_free_block);
@@ -967,20 +953,20 @@ void wifi_log_memory_usage(const char* context) {
 }
 
 void wifi_prepare_memory_for_gps(void) {
-#if C_LOG_LEVEL < 2
-    ILOG("MEM", "=== Preparing Memory for GPS Mode ===");
+#if C_LOG_LEVEL <= LOG_DEBUG_NUM
+    DLOG("MEM", "=== Preparing Memory for GPS Mode ===");
     
     size_t mem_before = esp_get_free_heap_size();
     size_t mem_before_internal = heap_caps_get_free_size(MALLOC_CAP_INTERNAL);
     size_t largest_before = heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL);
     
-    ILOG("MEM", "Memory before GPS preparation:");
-    ILOG("MEM", "  Total free: %zu bytes", mem_before);
-    ILOG("MEM", "  Internal free: %zu bytes", mem_before_internal);
-    ILOG("MEM", "  Largest block: %zu bytes", largest_before);
+    DLOG("MEM", "Memory before GPS preparation:");
+    DLOG("MEM", "  Total free: %zu bytes", mem_before);
+    DLOG("MEM", "  Internal free: %zu bytes", mem_before_internal);
+    DLOG("MEM", "  Largest block: %zu bytes", largest_before);
     
     // Quick memory consolidation - optimized for speed
-    ILOG("MEM", "Optimizing memory layout for GPS...");
+    DLOG("MEM", "Optimizing memory layout for GPS...");
 #endif
     // Fast consolidation phase - 2 quick cleanup triggers
     esp_get_free_heap_size(); // First trigger
@@ -988,7 +974,7 @@ void wifi_prepare_memory_for_gps(void) {
     
     esp_get_free_heap_size(); // Second trigger  
     vTaskDelay(pdMS_TO_TICKS(100));
-#if C_LOG_LEVEL < 2    
+#if C_LOG_LEVEL <= LOG_DEBUG_NUM
     // Final check and report
     size_t mem_after = esp_get_free_heap_size();
     size_t mem_after_internal = heap_caps_get_free_size(MALLOC_CAP_INTERNAL);
@@ -998,21 +984,21 @@ void wifi_prepare_memory_for_gps(void) {
     int internal_recovered = (int)(mem_after_internal - mem_before_internal);
     int largest_change = (int)(largest_after - largest_before);
     
-    ILOG("MEM", "Memory after GPS preparation:");
-    ILOG("MEM", "  Total free: %zu bytes (%+d)", mem_after, total_recovered);
-    ILOG("MEM", "  Internal free: %zu bytes (%+d)", mem_after_internal, internal_recovered);
-    ILOG("MEM", "  Largest block: %zu bytes (%+d)", largest_after, largest_change);
+    DLOG("MEM", "Memory after GPS preparation:");
+    DLOG("MEM", "  Total free: %zu bytes (%+d)", mem_after, total_recovered);
+    DLOG("MEM", "  Internal free: %zu bytes (%+d)", mem_after_internal, internal_recovered);
+    DLOG("MEM", "  Largest block: %zu bytes (%+d)", largest_after, largest_change);
     
     if (largest_after >= 32768) { // 32KB+ largest block is excellent for GPS
-        ILOG("MEM", "Excellent memory layout - GPS ready with large contiguous block");
+        DLOG("MEM", "Excellent memory layout - GPS ready with large contiguous block");
     } else if (largest_after >= 16384) { // 16KB+ is good
-        ILOG("MEM", "Good memory layout - GPS ready");
+        DLOG("MEM", "Good memory layout - GPS ready");
     } else {
         WLOG("MEM", "Limited largest block - GPS may have memory constraints");
     }
     
-    ILOG("MEM", "Memory optimization complete - GPS initialization ready");
-    ILOG("MEM", "==========================================");
+    DLOG("MEM", "Memory optimization complete - GPS initialization ready");
+    DLOG("MEM", "==========================================");
 #endif
 }
 

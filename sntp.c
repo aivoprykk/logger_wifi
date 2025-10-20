@@ -51,7 +51,7 @@ uint8_t set_time_zone(float offset) {
 
 // #ifdef CONFIG_SNTP_TIME_SYNC_METHOD_CUSTOM
 void sntp_sync_time(struct timeval *tv) {
-#if (C_LOG_LEVEL < 3)
+#if (C_LOG_LEVEL <= LOG_INFO_NUM)
     WLOG(TAG, "[%s] tv_sec: %lld, tv_usec: %ld", __FUNCTION__, tv->tv_sec, tv->tv_usec);
 #endif
 #if CONFIG_GPS_LOG_ENABLED
@@ -63,7 +63,7 @@ void sntp_sync_time(struct timeval *tv) {
         ELOG(TAG, "[%s] Failed to set time tv_sec: %lld", __FUNCTION__, tv->tv_sec);
         return;
     } else {
-#if (C_LOG_LEVEL < 3)
+#if (C_LOG_LEVEL <= LOG_INFO_NUM)
         ILOG(TAG, "[%s] Sntp time set successfully", __FUNCTION__);
         struct tm my_time={0};
         gmtime_r(&tv->tv_sec, &my_time);
