@@ -14,7 +14,8 @@
 #include "logger_wifi.h"
 #include "logger_events.h"
 #ifdef CONFIG_GPS_LOG_ENABLED
-#include "gps_user_cfg.h"
+// #include "config.h"
+#include "unified_config.h"
 #endif
 static const char *TAG = "sntp";
 
@@ -55,7 +56,7 @@ void sntp_sync_time(struct timeval *tv) {
     WLOG(TAG, "[%s] tv_sec: %lld, tv_usec: %ld", __FUNCTION__, tv->tv_sec, tv->tv_usec);
 #endif
 #if CONFIG_GPS_LOG_ENABLED
-    int ret = c_set_time_ts(tv->tv_sec, tv->tv_usec, c_gps_cfg.timezone);
+    int ret = c_set_time_ts(tv->tv_sec, tv->tv_usec, g_rtc_config.gps.timezone);
 #else
     int ret = c_set_time_ts(tv->tv_sec, tv->tv_usec, 0);
 #endif
@@ -63,8 +64,8 @@ void sntp_sync_time(struct timeval *tv) {
         ELOG(TAG, "[%s] Failed to set time tv_sec: %lld", __FUNCTION__, tv->tv_sec);
         return;
     } else {
+        FUNC_ENTRY_ARGS(TAG, "Sntp time set successfully");
 #if (C_LOG_LEVEL <= LOG_INFO_NUM)
-        ILOG(TAG, "[%s] Sntp time set successfully", __FUNCTION__);
         struct tm my_time={0};
         gmtime_r(&tv->tv_sec, &my_time);
         WLOG(TAG, "NTP raw time: %d-%02d-%02d %02d:%02d:%02d, tvsec:%lld", (my_time.tm_year) + 1900, (my_time.tm_mon) + 1, my_time.tm_mday, my_time.tm_hour, my_time.tm_min, my_time.tm_sec, tv->tv_sec);

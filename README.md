@@ -315,7 +315,6 @@ wifi_prepare_memory_for_gps();
 
 #### Configuration
 - `wifi_set_config(const char *ap_ssid, const char *ap_password, const char *sta_ssid, const char *sta_password)` - Set both AP and STA config
-- `wifi_sta_conf_sync()` - Sync STA configuration
 
 #### Status & Waiting
 - `wifi_status()` - Get current WiFi status

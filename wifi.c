@@ -19,8 +19,9 @@
 #include "esp_heap_caps.h"
 
 #include "logger_common.h" // nvs_init etc
-
-#include "context.h"
+// #include "config_manager.h"
+// #include "context.h"
+#include "unified_config.h"
 
 #define TAG "wifi"
 #define IPIPSTR(a) a[0], a[1], a[2], a[3]
@@ -85,11 +86,11 @@ static bool mode_change_pending = false;
 // }
 
 static void wifi_event_handler(void *arg, esp_event_base_t event_base, int32_t event_id, void *event_data) {
-    // ILOG(TAG, "[%s] base: %s event: %" PRId32 "\n", __FUNCTION__, event_base, event_id);
+    // FUNC_ENTRY_ARGS(TAG, "base: %s event: %" PRId32 "\n", event_base, event_id);
     if (event_base == WIFI_EVENT) {
         switch (event_id) {
             case WIFI_EVENT_STA_START:  // 2
-                ILOG(TAG, "[%s] %s", __FUNCTION__, wifi_event_strings(event_id));
+                FUNC_ENTRY_ARGS(TAG, "%s", wifi_event_strings(event_id));
                 // Clear any previous bits when starting
                 if(wifi_context.s_wifi_event_group) {
                     xEventGroupClearBits(wifi_context.s_wifi_event_group, WIFI_CONNECTED_BIT | WIFI_FAIL_BIT);
@@ -104,7 +105,7 @@ static void wifi_event_handler(void *arg, esp_event_base_t event_base, int32_t e
                 }
                 break;
             case WIFI_EVENT_STA_STOP:  // 3
-                ILOG(TAG, "[%s] %s", __FUNCTION__, wifi_event_strings(event_id));
+                FUNC_ENTRY_ARGS(TAG, "%s", wifi_event_strings(event_id));
                 wifi_context.s_sta_connection = 0;
                 if(wifi_context.s_wifi_event_group) {
                     xEventGroupClearBits(wifi_context.s_wifi_event_group, WIFI_CONNECTED_BIT);
@@ -246,7 +247,7 @@ int shutdown_wifi_and_cleanup(void) {
         ILOG("WIFI", "Starting WiFi shutdown sequence - events will be generated for service cleanup");
         
         // 1. Disconnect from WiFi first to generate proper disconnect events
-        ILOG(TAG, "[%s] wifi disconnect", __FUNCTION__);
+        FUNC_ENTRY_ARGS(TAG, "wifi disconnect");
         ret = esp_wifi_disconnect();
         if (ret == ESP_OK) {
             ILOG("WIFI", "WiFi disconnect initiated");
@@ -255,7 +256,7 @@ int shutdown_wifi_and_cleanup(void) {
         
         // 2. Stop WiFi - this generates WIFI_EVENT_AP_STOP and WIFI_EVENT_STA_STOP events
         //    which are crucial for HTTP server and other service cleanup
-        ILOG(TAG, "[%s] wifi stop", __FUNCTION__);
+        FUNC_ENTRY_ARGS(TAG, "wifi stop");
         int stop_attempts = 3;
         while (stop_attempts > 0) {
             ret = esp_wifi_stop();
@@ -332,7 +333,7 @@ int wifi_uninit() {
     }
 
     // STEP 4: Cleanup network interfaces - let ESP-IDF handle default netif changes
-    ILOG(TAG, "[%s] cleanup sta netif", __FUNCTION__);
+    FUNC_ENTRY_ARGS(TAG, "cleanup sta netif");
     if (s_sta_netif) {
         // Gracefully stop network services on this interface
         ILOG("MEM", "Stopping STA netif services");
@@ -362,7 +363,7 @@ int wifi_uninit() {
         ILOG("MEM", "Cleaned up WiFi STA netif");
     }
 
-    ILOG(TAG, "[%s] cleanup ap netif", __FUNCTION__);
+    FUNC_ENTRY_ARGS(TAG, "cleanup ap netif");
     if (s_ap_netif) {
         // Gracefully stop network services on this interface
         ILOG("MEM", "Stopping AP netif services");
@@ -491,7 +492,7 @@ int wifi_mode(uint8_t sta, uint8_t ap) {
     } else {
         set_mode = WIFI_MODE_NULL;
     }
-    DLOG(TAG, "[%s] set (sta: %d, ap: %d, next: %d)", __FUNCTION__, set_sta, set_ap, set_mode);
+    FUNC_ENTRY_ARGSD(TAG, "set (sta: %d, ap: %d, next: %d)", set_sta, set_ap, set_mode);
     if (current_mode == set_mode)
         return 1;
 #if (C_LOG_LEVEL <= LOG_DEBUG_NUM)
@@ -522,7 +523,7 @@ int wifi_mode(uint8_t sta, uint8_t ap) {
     
     // Now configure AP if needed (after mode is set)
     if (set_ap && !current_ap) {
-        DLOG(TAG, "[%s] Enabling AP.", __FUNCTION__);
+        FUNC_ENTRY_ARGSD(TAG, "Enabling AP.");
         err = wifi_ap_start();
         if (err != ESP_OK) {
             ELOG(TAG, "[%s] wifi_ap_start failed: %s", __FUNCTION__, esp_err_to_name(err));
@@ -531,7 +532,7 @@ int wifi_mode(uint8_t sta, uint8_t ap) {
     }
 #if (C_LOG_LEVEL <= LOG_DEBUG_NUM) 
     else if (!set_ap && current_ap) {
-        DLOG(TAG, "[%s] Disabling AP.", __FUNCTION__);
+        FUNC_ENTRY_ARGSD(TAG, "Disabling AP.");
     }
 #endif
     
@@ -557,9 +558,9 @@ void wifi_init() {
         WLOG(TAG, "[%s] WiFi already initialized, skipping", __FUNCTION__);
         return;
     }
-#if defined(CONFIG_ESP_WIFI_NVS_ENABLED)
-    nvs_init();
-#endif
+// #if defined(CONFIG_ESP_WIFI_NVS_ENABLED)
+//     nvs_init();
+// #endif
     FUNC_ENTRY_ARGS(TAG, "init netif...");
     esp_err_t err = esp_netif_init();
     if (err != ERR_OK && err != ESP_ERR_INVALID_STATE) {
@@ -723,11 +724,47 @@ int wifi_ap_start() {
     return err;
 }
 
+static int wifi_sta_config_init() {
+    FUNC_ENTRY(TAG);
+    const char *ssid = 0, *pwd=0;
+    for(int i = 0; i < M_WIFI_STA_MAX; i++) {
+        ssid = g_rtc_config.main.wifi_sta[i].ssid;
+        pwd = g_rtc_config.main.wifi_sta[i].password;
+        if(ssid && *ssid) {
+            strncpy(wifi_context.stas[i].ssid, ssid, sizeof(wifi_context.stas[i].ssid) - 1);
+            wifi_context.stas[i].ssid[sizeof(wifi_context.stas[i].ssid) - 1] = '\0';
+            if(pwd && *pwd) {
+                strncpy(wifi_context.stas[i].password, pwd, sizeof(wifi_context.stas[i].password) - 1);
+                wifi_context.stas[i].password[sizeof(wifi_context.stas[i].password) - 1] = '\0';
+                pwd++;
+            }
+            else {
+                wifi_context.stas[i].password[0] = '\0';
+            }
+        }
+        else {
+            wifi_context.stas[i].ssid[0] = '\0';
+            wifi_context.stas[i].password[0] = '\0';
+        }
+    }
+    wifi_context.offset = g_rtc_config.gps.timezone;
+    return 0;
+}
+
 int wifi_sta_connect(uint16_t slot) {
     FUNC_ENTRY(TAG);
     esp_err_t err = ESP_OK;
-    if (slot >= M_WIFI_STA_MAX || !wifi_context.stas[slot].ssid[0])
-        goto end;
+    if (slot >= M_WIFI_STA_MAX) {
+        ELOG(TAG, "Invalid slot %d", slot);
+        return ESP_ERR_INVALID_ARG;
+    }
+    if (!wifi_context.stas[slot].ssid[0]) {
+        wifi_sta_config_init();
+        if (!wifi_context.stas[slot].ssid[0]) {
+            ELOG(TAG, "SSID not configured");
+            return ESP_ERR_INVALID_ARG;
+        }
+    }
     wifi_config_t conf;
     memset(&conf, 0, sizeof(conf));
     strncpy((char *)conf.sta.ssid, wifi_context.stas[slot].ssid, 31);
@@ -808,7 +845,7 @@ int wifi_status() {
         //  ILOG(TAG, "Failed to connect to SSID:%s, password:%s", ssid, password);
         return 0;
     } else {
-        // ILOG(TAG, "[%s] UNEXPECTED EVENT\n", __FUNCTION__);
+        // FUNC_ENTRY_ARGS(TAG, "UNEXPECTED EVENT\n");
         //  ELOG(TAG, "UNEXPECTED EVENT");
         return -1;
     }
@@ -870,6 +907,7 @@ int wifi_sta_connect_scan() {
     ILOG(TAG, "[%s] ap_count: %d", __func__, ap_count);
     uint8_t k = M_WIFI_STA_MAX + 1;
     if (ap_count > 0) {
+        wifi_sta_config_init();
         uint16_t i, j;
         for (i = 0; (i < SCAN_LIST_SIZE) && (i < ap_count); ++i) {
             DLOG(TAG, "* %s\t\t%d", ap_info[i].ssid, ap_info[i].rssi);
@@ -877,7 +915,7 @@ int wifi_sta_connect_scan() {
                 if (!wifi_context.stas[j].ssid[0])
                     continue;
                 if (!strcmp((char*)&(ap_info[i].ssid[0]), &(wifi_context.stas[j].ssid[0]))) {
-                    DLOG(TAG, "[%s] found %s", __func__, wifi_context.stas[j].ssid);
+                    FUNC_ENTRY_ARGSD(TAG, "found %s", wifi_context.stas[j].ssid);
                     k = j;
                     goto found;
                 }
@@ -1018,7 +1056,7 @@ int wifi_request_mode_change(void) {
         return -1;
     }
     
-    DLOG(TAG, "[%s] Processing WiFi mode change request", __func__);
+    FUNC_ENTRY_ARGSD(TAG, "Processing WiFi mode change request");
 
     // Call before-change callback (ADC suppression, config sync, etc.)
     if (s_mode_change_callbacks.before_mode_change && !mode_change_pending) {
@@ -1031,7 +1069,7 @@ int wifi_request_mode_change(void) {
 #else
     if(wifi_context.s_wifi_mode == wifi_mode_ap) {
 #endif
-        DLOG(TAG, "[%s] Switching to STA mode", __func__);
+        FUNC_ENTRY_ARGSD(TAG, "Switching to STA mode");
         wifi_mode(1, 0); // WiFi set station mode
     }
     else 
@@ -1039,12 +1077,12 @@ int wifi_request_mode_change(void) {
     if(wifi_context.s_wifi_mode == wifi_mode_sta)
 #endif
     {
-        DLOG(TAG, "[%s] Switching to AP mode", __func__);
+        FUNC_ENTRY_ARGSD(TAG, "Switching to AP mode");
         wifi_mode(0, 1); // WiFi set AP mode
     }
 #if defined(CONFIG_IDF_TARGET_ESP32S3) || defined(ENABLE_WIFI_AP_STA)
     else {
-        DLOG(TAG, "[%s] Switching to AP+STA mode", __func__);
+        FUNC_ENTRY_ARGSD(TAG, "Switching to AP+STA mode");
         wifi_mode(1, 1); // WiFi set AP+STA mode
     }
 #endif

@@ -39,7 +39,7 @@ struct cfg_item {
 
 #define WIFI_CFG_ITEM_DEFAULT(a) { \
     .ssid = a, \
-        .password = "", \
+        .password = {0}, \
         .ipv4_address = {0, 0, 0, 0}, \
         .ipv4_netmask = {0, 0, 0, 0}, \
         .ipv4_gw = {0, 0, 0, 0} \
@@ -52,7 +52,7 @@ struct m_wifi_context {
   bool s_ap_connection;
   bool s_wifi_started;
   bool s_wifi_initialized;
-  bool s_nvs_initialized;
+  // bool s_nvs_initialized;
 
   bool s_sta_connection;
   bool s_sta_connecting;
@@ -76,7 +76,6 @@ struct m_wifi_context {
         .s_ap_connection = 0, \
         .s_wifi_started = 0,  \
         .s_wifi_initialized = 0, \
-        .s_nvs_initialized = 0, \
         .s_sta_connection = 0,  \
         .s_sta_connecting = 0, \
         .s_sta_connected = 0, \
@@ -113,7 +112,6 @@ int wifi_wait_for_time_sync(uint32_t timeout_ms);
 int wifi_set_config(const char *ap_ssid, const char *ap_password, const char *sta_ssid, const char *sta_password);
 int wifi_sta_set_config(int num, const char *sta_ssid, const char *sta_password);
 int wifi_ap_set_config(const char *ap_ssid, const char *ap_password);
-void wifi_sta_conf_sync(void);  // Sync configuration before mode change
 
 // WiFi mode change handling with callback support for external dependencies
 typedef struct {
