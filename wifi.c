@@ -45,7 +45,7 @@ static const char * _wifi_event_strings[] = {
   "WIFI_EVENT_AP_STADISCONNECTED",   // 15
 };
 const char * wifi_event_strings(int id) {
-    return _wifi_event_strings[id];
+    return id < lengthof(_wifi_event_strings) ? _wifi_event_strings[id] : "WIFI_EVENT_UNKNOWN";
 }
 #else
 const char * wifi_event_strings(int id) {return "WIFI_EVENT";}
@@ -550,10 +550,8 @@ int wifi_mode(uint8_t sta, uint8_t ap) {
 
 void wifi_init() {
     FUNC_ENTRY(TAG);
-    
     // Log memory usage before initialization
-    wifi_log_memory_usage("Before WiFi Init");
-    
+    // wifi_log_memory_usage("Before WiFi Init");
     if (wifi_context.s_wifi_initialized) {
         WLOG(TAG, "[%s] WiFi already initialized, skipping", __FUNCTION__);
         return;

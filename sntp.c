@@ -78,14 +78,14 @@ void sntp_sync_time(struct timeval *tv) {
         xEventGroupSetBits(wifi_context.s_wifi_event_group, WIFI_TIME_SYNC_BIT);
     }
     
-    esp_event_post(LOGGER_EVENT, LOGGER_EVENT_DATETIME_SET, NULL,0, portMAX_DELAY);
+    // Time sync event removed - polling system handles display updates regularly
     print_local_time();
 }
 // #endif
 
 static void time_sync_notification_cb(struct timeval *tv) {
     FUNC_ENTRY_ARGS(TAG, " Notification of a time synchronization event");
-    esp_event_post(LOGGER_EVENT, LOGGER_EVENT_DATETIME_SET, NULL,0, portMAX_DELAY);
+    // Time sync event removed - polling system handles display updates regularly
 }
 
 static uint8_t sntp_initialized = 0;
