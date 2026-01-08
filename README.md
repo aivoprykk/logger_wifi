@@ -337,16 +337,10 @@ wifi_prepare_memory_for_gps();
 #### wifi_context (Global Context)
 ```c
 struct m_wifi_context {
-    bool Wifi_on;                    // WiFi enabled flag
-    bool s_ap_connection;           // AP connection status
     bool s_wifi_started;            // WiFi started flag
     bool s_wifi_initialized;        // WiFi initialized flag
     bool s_nvs_initialized;         // NVS initialized flag
 
-    bool s_sta_connection;          // STA connection status
-    bool s_sta_connecting;          // STA connecting flag
-    bool s_sta_connected;           // STA connected flag
-    bool s_sta_got_ip;              // STA got IP flag
     bool s_sta_connect_not_found;   // STA network not found flag
 
     bool s_sta_connect_error;       // STA connection error flag

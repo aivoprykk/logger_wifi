@@ -19,6 +19,13 @@ extern "C" {
 #endif
 #include "common_log.h"
 
+
+// Forward declarations
+static void _wifi_mode_change_internal(void);
+static int wifi_sta_config_init(void);
+static int wifi_sta_connect(uint16_t num);
+int wifi_sta_connect_scan();
+
 #ifdef __cplusplus
 }
 #endif

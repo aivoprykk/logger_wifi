@@ -77,7 +77,7 @@ void sntp_sync_time(struct timeval *tv) {
     if (wifi_context.s_wifi_event_group) {
         xEventGroupSetBits(wifi_context.s_wifi_event_group, WIFI_TIME_SYNC_BIT);
     }
-    
+
     // Time sync event removed - polling system handles display updates regularly
     print_local_time();
 }
@@ -105,6 +105,9 @@ void initialize_sntp(float offset) {
     // config.server_from_dhcp = true;
     // config.renew_servers_after_new_IP = true;
     // config.index_of_first_server = 1;
+    if (wifi_context.s_wifi_event_group) {
+        xEventGroupClearBits(wifi_context.s_wifi_event_group, WIFI_TIME_SYNC_BIT);
+    }
     config.ip_event_to_renew = IP_EVENT_STA_GOT_IP;
     config.sync_cb = time_sync_notification_cb;
     esp_netif_sntp_init(&config);
@@ -126,6 +129,7 @@ int uninitialize_sntp() {
     return ESP_OK;
 }
 
+#if defined(ENABLE_WAIT_FOR_STATE)
 int wifi_wait_for_time_sync(uint32_t timeout_ms) {
     if (!wifi_context.s_wifi_event_group) {
         ELOG(TAG, "[%s] WiFi event group not initialized", __FUNCTION__);
@@ -143,6 +147,7 @@ int wifi_wait_for_time_sync(uint32_t timeout_ms) {
         return ESP_ERR_TIMEOUT;  // Timeout occurred
     }
 }
+#endif
 
 // void obtain_sntp_time(void) {
 //     //ESP_LOGI(TAG, "[%s]", __FUNCTION__);

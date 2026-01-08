@@ -17,6 +17,7 @@
 #include "esp_netif_sntp.h"
 #include "esp_system.h"
 #include "esp_heap_caps.h"
+#include "esp_timer.h"
 
 #include "logger_common.h" // nvs_init etc
 // #include "config_manager.h"
@@ -45,7 +46,9 @@ static const char * _wifi_event_strings[] = {
   "WIFI_EVENT_AP_STADISCONNECTED",   // 15
 };
 const char * wifi_event_strings(int id) {
-    return id < lengthof(_wifi_event_strings) ? _wifi_event_strings[id] : "WIFI_EVENT_UNKNOWN";
+    return id < lengthof(_wifi_event_strings) ? _wifi_event_strings[id] 
+        : id == 43 ? "WIFI_EVENT_CHANNEL_CHANGE"
+        : "WIFI_EVENT_UNKNOWN";
 }
 #else
 const char * wifi_event_strings(int id) {return "WIFI_EVENT";}
@@ -59,44 +62,92 @@ struct m_wifi_context wifi_context = WIFI_CONTEXT_DEFAULT();
 
 static esp_netif_t *s_sta_netif = 0;  // NOLINT(cppcoreguidelines-avoid-non-const-global-variables)
 static esp_netif_t *s_ap_netif = 0;  // NOLINT(cppcoreguidelines-avoid-non-const-global-variables)
-esp_event_handler_instance_t instance_wifi_id = 0, instance_ip_id = 0;
+
+static esp_event_handler_instance_t instance_wifi_id = 0;
+static esp_event_handler_instance_t instance_ip_id = 0;
+
+// WiFi mode change task handle (for low-priority async mode change)
+static TaskHandle_t wifi_mode_change_task_handle = NULL;
 
 // WiFi mode change callbacks for coordinating external dependencies
 static wifi_mode_change_callbacks_t s_mode_change_callbacks = {0};
 static bool mode_change_pending = false;
+static bool mode_change_in_progress = false;  // Prevents duplicate requests during mode change
+
+// Timer to defer WiFi scan (prevents event loop deadlock)
+static esp_timer_handle_t wifi_scan_defer_timer = NULL;
+#define SCAN_LIST_SIZE 10
+static uint8_t scan_progress = 0;
 
 #define MAX_STA_CONN (8)
-#define ESP_MAXIMUM_RETRY (10)
+#define STA_CONNECT_MAXIMUM_RETRY (10)
 
-/* The event group allows multiple bits for each event, but we only care about
- * two events:
- * - we are connected to the AP with an IP
- * - we failed to connect after the maximum amount of retries */
-#define WIFI_CONNECTED_BIT BIT0
-#define WIFI_FAIL_BIT BIT1
-#define WIFI_TIME_SYNC_BIT BIT2    // Time synchronized via SNTP
-#define WIFI_AP_READY_BIT BIT3     // AP mode fully initialized
+// Unified WiFi state access functions
+bool wifi_is_sta_connecting(void) {
+    if (!wifi_context.s_wifi_event_group) return false;
+    EventBits_t bits = xEventGroupGetBits(wifi_context.s_wifi_event_group);
+    return (bits & WIFI_STA_CONNECTING_BIT) != 0;
+}
+
+bool wifi_is_sta_scanning(void) {
+    if (!wifi_context.s_wifi_event_group) return false;
+    EventBits_t bits = xEventGroupGetBits(wifi_context.s_wifi_event_group);
+    return (bits & WIFI_SCANNING_BIT) != 0;
+}
+
+bool wifi_is_sta_connected(void) {
+    if (!wifi_context.s_wifi_event_group) return false;
+    EventBits_t bits = xEventGroupGetBits(wifi_context.s_wifi_event_group);
+    return (bits & WIFI_CONNECTED_BIT) != 0;
+}
+
+bool wifi_is_sta_connection_failed(void) {
+    if (!wifi_context.s_wifi_event_group) return false;
+    EventBits_t bits = xEventGroupGetBits(wifi_context.s_wifi_event_group);
+    return (bits & WIFI_FAIL_BIT) != 0;
+}
+
+bool wifi_is_ap_ready(void) {
+    if (!wifi_context.s_wifi_event_group) return false;
+    EventBits_t bits = xEventGroupGetBits(wifi_context.s_wifi_event_group);
+    return (bits & WIFI_AP_READY_BIT) != 0;
+}
+
+bool wifi_is_time_synced(void) {
+    if (!wifi_context.s_wifi_event_group) return false;
+    EventBits_t bits = xEventGroupGetBits(wifi_context.s_wifi_event_group);
+    return (bits & WIFI_TIME_SYNC_BIT) != 0;
+}
+
+wifi_mode_t wifi_get_current_mode(void) {
+    wifi_mode_t mode = WIFI_MODE_NULL;
+    if (wifi_context.s_wifi_initialized && wifi_context.s_wifi_started) {
+        esp_wifi_get_mode(&mode);
+    }
+    return mode;
+}
 
 // void network_reset() {
-//     wifi_config_t current_conf;
-//     esp_wifi_get_config((wifi_interface_t)ESP_IF_WIFI_STA, &current_conf);
-//     memset(current_conf.sta.ssid, 0, sizeof(current_conf.sta.ssid));
-//     memset(current_conf.sta.password, 0, sizeof(current_conf.sta.password));
-//     esp_wifi_set_config((wifi_interface_t)ESP_IF_WIFI_STA, &current_conf);
-// }
 
 static void wifi_event_handler(void *arg, esp_event_base_t event_base, int32_t event_id, void *event_data) {
     // FUNC_ENTRY_ARGS(TAG, "base: %s event: %" PRId32 "\n", event_base, event_id);
     if (event_base == WIFI_EVENT) {
+        FUNC_ENTRY_ARGS(TAG, "%s(%ld)", wifi_event_strings(event_id), event_id);
         switch (event_id) {
             case WIFI_EVENT_STA_START:  // 2
-                FUNC_ENTRY_ARGS(TAG, "%s", wifi_event_strings(event_id));
                 // Clear any previous bits when starting
                 if(wifi_context.s_wifi_event_group) {
-                    xEventGroupClearBits(wifi_context.s_wifi_event_group, WIFI_CONNECTED_BIT | WIFI_FAIL_BIT);
+                    xEventGroupClearBits(wifi_context.s_wifi_event_group, WIFI_FAIL_BIT | WIFI_CONNECTED_BIT | WIFI_FAIL_BIT);
+                    xEventGroupSetBits(wifi_context.s_wifi_event_group, WIFI_STA_CONNECTING_BIT | WIFI_SCANNING_BIT);
                 }
-                wifi_context.s_sta_connection = 1;
-                wifi_sta_connect_scan();  // try station mode first
+                
+                // CRITICAL: Don't call wifi_sta_connect_scan() directly - it blocks waiting for scan results!
+                // This would deadlock the event loop (can't receive scan events while blocked in handler)
+                // Instead, defer scan to timer callback that runs AFTER event handler returns
+                DLOG(TAG, "STA_START: Deferring WiFi scan to prevent event loop deadlock");
+                if (wifi_scan_defer_timer) {
+                    esp_timer_start_once(wifi_scan_defer_timer, 10000);  // 10ms delay (let event handler return)
+                }
                 
                 // Notify external dependencies that STA mode is ready
                 if (s_mode_change_callbacks.after_mode_change_complete && mode_change_pending) {
@@ -105,44 +156,93 @@ static void wifi_event_handler(void *arg, esp_event_base_t event_base, int32_t e
                 }
                 break;
             case WIFI_EVENT_STA_STOP:  // 3
-                FUNC_ENTRY_ARGS(TAG, "%s", wifi_event_strings(event_id));
-                wifi_context.s_sta_connection = 0;
+                // wifi_context.s_sta_connection = 0;
                 if(wifi_context.s_wifi_event_group) {
-                    xEventGroupClearBits(wifi_context.s_wifi_event_group, WIFI_CONNECTED_BIT);
-                    xEventGroupSetBits(wifi_context.s_wifi_event_group, WIFI_FAIL_BIT);
+                    xEventGroupClearBits(wifi_context.s_wifi_event_group, WIFI_FAIL_BIT | WIFI_CONNECTED_BIT | WIFI_STA_CONNECTING_BIT);
                 }
                 break;
             case WIFI_EVENT_STA_CONNECTED:  // 4
 #if (C_LOG_LEVEL <= LOG_INFO_NUM)
                 const wifi_event_sta_connected_t * staconnevent = (wifi_event_sta_connected_t *)event_data;
-                FUNC_ENTRY_ARGS(TAG, " %s, ssid:%s", wifi_event_strings(event_id), staconnevent->ssid);
+                FUNC_ENTRY_ARGS(TAG, "ssid:%s", staconnevent->ssid);
 #endif
-                wifi_context.s_sta_connected = 1;
                 // Clear FAIL bit when successfully connected
+                wifi_context.s_retry_num = STA_CONNECT_MAXIMUM_RETRY;
                 if(wifi_context.s_wifi_event_group) {
-                    xEventGroupClearBits(wifi_context.s_wifi_event_group, WIFI_FAIL_BIT);
+                    xEventGroupClearBits(wifi_context.s_wifi_event_group, WIFI_FAIL_BIT | WIFI_SCANNING_BIT);
                 }
                 break;
             case WIFI_EVENT_STA_DISCONNECTED:  // 5
 #if (C_LOG_LEVEL <= LOG_INFO_NUM)
                 const wifi_event_sta_disconnected_t * stadisconnevent = (wifi_event_sta_disconnected_t *)event_data;
-                FUNC_ENTRY_ARGS(TAG, " %s, ssid:%s", wifi_event_strings(event_id), stadisconnevent->ssid);
+                FUNC_ENTRY_ARGS(TAG, "ssid:%s", stadisconnevent->ssid);
 #endif
-                wifi_context.s_sta_connected = 0;
                 if(wifi_context.s_wifi_event_group) {
-                    xEventGroupClearBits(wifi_context.s_wifi_event_group, WIFI_CONNECTED_BIT);
+                    xEventGroupClearBits(wifi_context.s_wifi_event_group, WIFI_CONNECTED_BIT | WIFI_SCANNING_BIT);
                     xEventGroupSetBits(wifi_context.s_wifi_event_group, WIFI_FAIL_BIT);
                 }
-                if (wifi_context.s_retry_num && (wifi_context.s_wifi_mode == WIFI_MODE_STA || wifi_context.s_wifi_mode == WIFI_MODE_APSTA)) {
+                wifi_mode_t current_mode = wifi_get_current_mode();
+                if (wifi_context.s_retry_num && (current_mode == WIFI_MODE_STA || current_mode == WIFI_MODE_APSTA)) {
                     WLOG(TAG, "[%s] %s.", __FUNCTION__, wifi_event_strings(event_id));
-                    wifi_sta_connect_scan();
-                    wifi_context.s_retry_num--;
+                    DLOG(TAG, "STA_DISCONNECTED: Deferring WiFi scan to prevent event loop deadlock");
+                    if (wifi_scan_defer_timer) {
+                        esp_timer_start_once(wifi_scan_defer_timer, 10000);  // 10ms delay (let event handler return)
+                    }
+                }
+                break;
+            case WIFI_EVENT_SCAN_DONE:  // 1
+                DLOG(TAG, "SCAN_DONE: Processing scan results");
+                // Process scan results if scan was in progress
+                if(wifi_context.s_wifi_event_group) {
+                    xEventGroupClearBits(wifi_context.s_wifi_event_group, WIFI_SCANNING_BIT);
+                }
+                uint16_t ap_count = 0;
+                esp_err_t err = ESP_OK;
+                if (scan_progress) {
+                    uint16_t number = SCAN_LIST_SIZE;
+                    wifi_ap_record_t ap_info[SCAN_LIST_SIZE] = {0};
+                    err = esp_wifi_scan_get_ap_num(&ap_count);
+                    if (err == ESP_OK && ap_count > 0) {
+                        err = esp_wifi_scan_get_ap_records(&number, ap_info);
+                        if (err == ESP_OK) {
+                            ILOG(TAG, "Scan found %d APs", ap_count);
+                            wifi_sta_config_init();
+                            uint8_t k = M_WIFI_STA_MAX + 1;
+                            
+                            // Find matching configured network
+                            for (uint16_t i = 0; (i < SCAN_LIST_SIZE) && (i < ap_count); ++i) {
+                                DLOG(TAG, "* %s\t\t%d", ap_info[i].ssid, ap_info[i].rssi);
+                                for (uint16_t j = 0; j < M_WIFI_STA_MAX; ++j) {
+                                    if (!wifi_context.stas[j].ssid[0])
+                                        continue;
+                                    if (!strcmp((char*)&(ap_info[i].ssid[0]), &(wifi_context.stas[j].ssid[0]))) {
+                                        DLOG(TAG, "Found matching network: %s", wifi_context.stas[j].ssid);
+                                        k = j;
+                                        goto found;
+                                    }
+                                }
+                            }
+                            
+                            found:
+                            // Connect to best match or default
+                            if (k < M_WIFI_STA_MAX)
+                                err = wifi_sta_connect(k);
+                            else if (ap_count > M_WIFI_STA_MAX - 1 || !ap_count)
+                                err = wifi_sta_connect(0);
+                        }
+                    }
+                    scan_progress = 0;
+                }
+                if (err) {
+                    ELOG(TAG, "Failed to process scan results: %s", esp_err_to_name(err));
+                    if(wifi_context.s_wifi_event_group) {
+                        xEventGroupSetBits(wifi_context.s_wifi_event_group, WIFI_FAIL_BIT);
+                    }
                 }
                 break;
             case WIFI_EVENT_AP_START:
-                FUNC_ENTRY_ARGS(TAG, " %s", wifi_event_strings(event_id));
                 // sprintf(wifi_context.ip_address, IPSTR, IPIPSTR(wifi_context.ap.ipv4_address));
-                wifi_context.s_ap_connection = 1;
+                // wifi_context.s_ap_connection = 1;
                 // Set AP ready bit for task synchronization
                 if(wifi_context.s_wifi_event_group) {
                     xEventGroupSetBits(wifi_context.s_wifi_event_group, WIFI_AP_READY_BIT);
@@ -155,8 +255,7 @@ static void wifi_event_handler(void *arg, esp_event_base_t event_base, int32_t e
                 }
                 break;
             case WIFI_EVENT_AP_STOP:
-                FUNC_ENTRY_ARGSD(TAG, " %s", wifi_event_strings(event_id));
-                wifi_context.s_ap_connection = 0;
+                // wifi_context.s_ap_connection = 0;
                 // Clear AP ready bit
                 if(wifi_context.s_wifi_event_group) {
                     xEventGroupClearBits(wifi_context.s_wifi_event_group, WIFI_AP_READY_BIT);
@@ -165,38 +264,38 @@ static void wifi_event_handler(void *arg, esp_event_base_t event_base, int32_t e
 #if (C_LOG_LEVEL <= LOG_DEBUG_NUM)
             case WIFI_EVENT_AP_STACONNECTED:
                 const wifi_event_ap_staconnected_t * apstaconnevent = (wifi_event_ap_staconnected_t *)event_data;
-                FUNC_ENTRY_ARGSD(TAG, " %s. " MACSTR " join, AID=%d", wifi_event_strings(event_id), MAC2STR(apstaconnevent->mac), apstaconnevent->aid);
+                FUNC_ENTRY_ARGSD(TAG, MACSTR " join, AID=%d", MAC2STR(apstaconnevent->mac), apstaconnevent->aid);
                 break;
             case WIFI_EVENT_AP_STADISCONNECTED:
                 const wifi_event_ap_stadisconnected_t * apstadisconnevent = (wifi_event_ap_stadisconnected_t *)event_data;
-                FUNC_ENTRY_ARGSD(TAG, " %s. " MACSTR " leave, AID=%d", wifi_event_strings(event_id), MAC2STR(apstadisconnevent->mac), apstadisconnevent->aid);
-                break;
-            case WIFI_EVENT_MAX:
-                FUNC_ENTRY_ARGSD(TAG, " WIFI_EVENT_MAX.");
+                FUNC_ENTRY_ARGSD(TAG, MACSTR " leave, AID=%d", MAC2STR(apstadisconnevent->mac), apstadisconnevent->aid);
                 break;
 #endif
             default:
                 break;
         }
-    } else if (event_base == IP_EVENT) {
+    }
+}
+static void ip_event_handler(void *arg, esp_event_base_t event_base, int32_t event_id, void *event_data) {
+    if (event_base == IP_EVENT) {
         ip_event_got_ip_t *event;
+        FUNC_ENTRY_ARGS(TAG, "IP_EVENT(%ld)", event_id);
         switch(event_id) {
             case IP_EVENT_STA_GOT_IP:
                 event = (ip_event_got_ip_t *)event_data;
-                WLOG(TAG, "[%s] IP_EVENT -> IP_EVENT_STA_GOT_IP: " IPSTR, __FUNCTION__, IP2STR(&event->ip_info.ip));
+                FUNC_ENTRY_ARGW(TAG, "STA_GOT_IP: " IPSTR, IP2STR(&event->ip_info.ip));
                 uint32_to_uint8_array(event->ip_info.ip.addr, wifi_context.stas[wifi_context.s_sta_num_connect].ipv4_address);
                 uint32_to_uint8_array(event->ip_info.netmask.addr, wifi_context.stas[wifi_context.s_sta_num_connect].ipv4_netmask);
                 uint32_to_uint8_array(event->ip_info.gw.addr, wifi_context.stas[wifi_context.s_sta_num_connect].ipv4_gw);
-                wifi_context.s_sta_got_ip = 1;
                 /* Set sta as the default interface */
                 esp_netif_set_default_netif(s_sta_netif);
-                if(wifi_context.s_ap_connection) {
 #if defined(CONFIG_LWIP_IPV4_NAPT)
+                if(wifi_is_ap_ready()) {  // Use unified access instead of wifi_context.s_ap_connection
                     if(esp_netif_napt_enable(s_ap_netif) != ESP_OK) {
                         ELOG(TAG, "NAPT not enabled on the netif: %p", s_ap_netif);
                     }
-#endif
                 }
+#endif
                 if(wifi_context.s_wifi_event_group) {
                     xEventGroupClearBits(wifi_context.s_wifi_event_group, WIFI_FAIL_BIT);
                     xEventGroupSetBits(wifi_context.s_wifi_event_group, WIFI_CONNECTED_BIT);
@@ -206,12 +305,11 @@ static void wifi_event_handler(void *arg, esp_event_base_t event_base, int32_t e
                 break;
             case IP_EVENT_STA_LOST_IP:
                 event = (ip_event_got_ip_t *)event_data;
-                DLOG(TAG, "[%s] IP_EVENT -> IP_EVENT_STA_LOST_IP:" IPSTR, __FUNCTION__, IP2STR(&event->ip_info.ip));
+                FUNC_ENTRY_ARGSD(TAG, "STA_LOST_IP:" IPSTR, IP2STR(&event->ip_info.ip));
                 memset(wifi_context.stas[wifi_context.s_sta_num_connect].ipv4_address,0, 4);
                 memset(wifi_context.stas[wifi_context.s_sta_num_connect].ipv4_netmask,0, 4);
                 memset(wifi_context.stas[wifi_context.s_sta_num_connect].ipv4_gw,0, 4);
-                wifi_context.s_sta_got_ip = 0;
-                if(wifi_context.s_ap_connection) {
+                if(wifi_is_ap_ready()) {  // Use unified access
                     esp_netif_set_default_netif(s_ap_netif);
 #if defined(CONFIG_LWIP_IPV4_NAPT)
                     esp_netif_napt_disable(s_ap_netif);
@@ -223,6 +321,10 @@ static void wifi_event_handler(void *arg, esp_event_base_t event_base, int32_t e
                 }
                 // Stop SNTP when IP is lost
                 uninitialize_sntp();
+                break;
+            case IP_EVENT_AP_STAIPASSIGNED:
+                event = (ip_event_got_ip_t *)event_data;
+                FUNC_ENTRY_ARGS(TAG, "AP_STAIPASSIGNED:" IPSTR, IP2STR(&event->ip_info.ip));
                 break;
             default:
                 break;
@@ -247,7 +349,7 @@ int shutdown_wifi_and_cleanup(void) {
         ILOG("WIFI", "Starting WiFi shutdown sequence - events will be generated for service cleanup");
         
         // 1. Disconnect from WiFi first to generate proper disconnect events
-        FUNC_ENTRY_ARGS(TAG, "wifi disconnect");
+        FUNC_ENTRY_ARGSD(TAG, "WiFi disconnect");
         ret = esp_wifi_disconnect();
         if (ret == ESP_OK) {
             ILOG("WIFI", "WiFi disconnect initiated");
@@ -256,7 +358,7 @@ int shutdown_wifi_and_cleanup(void) {
         
         // 2. Stop WiFi - this generates WIFI_EVENT_AP_STOP and WIFI_EVENT_STA_STOP events
         //    which are crucial for HTTP server and other service cleanup
-        FUNC_ENTRY_ARGS(TAG, "wifi stop");
+        FUNC_ENTRY_ARGSD(TAG, "WiFi stop");
         int stop_attempts = 3;
         while (stop_attempts > 0) {
             ret = esp_wifi_stop();
@@ -273,7 +375,7 @@ int shutdown_wifi_and_cleanup(void) {
         
         // Allow time for all WiFi stop events to be processed by services
         // This is critical for HTTP server shutdown, file system cleanup, etc.
-        ILOG("WIFI", "Waiting for service cleanup to complete...");
+        FUNC_ENTRY_ARGSD("WIFI", "Waiting for service cleanup to complete...");
         vTaskDelay(pdMS_TO_TICKS(200)); // Quick service cleanup
     }
     
@@ -296,6 +398,12 @@ int shutdown_wifi_and_cleanup(void) {
     
     ILOG("WIFI", "WiFi shutdown complete");
     return ret;
+}
+
+// Timer callback: Execute WiFi scan outside of event handler context (prevents deadlock)
+static void wifi_scan_defer_timer_callback(void* arg) {
+    DLOG(TAG, "Deferred WiFi scan executing (outside event handler)");
+    wifi_sta_connect_scan();  // Now safe to call - not in event handler anymore
 }
 
 int wifi_uninit() {
@@ -331,6 +439,22 @@ int wifi_uninit() {
         instance_ip_id = 0;
         ILOG("MEM", "Unregistered IP event handler");
     }
+    // Clean up mode change task if still running
+    if (wifi_mode_change_task_handle) {
+        vTaskDelete(wifi_mode_change_task_handle);
+        wifi_mode_change_task_handle = NULL;
+        ILOG("MEM", "Deleted WiFi mode change task");
+    }
+    
+    // Delete WiFi scan defer timer
+    if (wifi_scan_defer_timer) {
+        esp_timer_stop(wifi_scan_defer_timer);  // Stop if running
+        esp_timer_delete(wifi_scan_defer_timer);
+        wifi_scan_defer_timer = NULL;
+        ILOG("MEM", "Deleted WiFi scan defer timer");
+    }
+
+    wifi_context.s_wifi_event_group = 0;
 
     // STEP 4: Cleanup network interfaces - let ESP-IDF handle default netif changes
     FUNC_ENTRY_ARGS(TAG, "cleanup sta netif");
@@ -442,10 +566,6 @@ int wifi_uninit() {
     // Reset WiFi context state variables
     wifi_context.s_wifi_initialized = 0;
     wifi_context.s_wifi_started = 0;
-    wifi_context.s_sta_connection = 0;
-    wifi_context.s_ap_connection = 0;
-    wifi_context.s_sta_connected = 0;
-    wifi_context.s_sta_got_ip = 0;
     wifi_context.s_retry_num = 0;
     
     // Event handler instances already reset during unregistration
@@ -469,8 +589,8 @@ int wifi_mode(uint8_t sta, uint8_t ap) {
     wifi_mode_t current_mode = WIFI_MODE_NULL;
     wifi_context.s_retry_num = 10;
     if (wifi_context.s_wifi_initialized && wifi_context.s_wifi_started) {
-        err = esp_wifi_get_mode(&current_mode);
-        if (err != ESP_OK) {
+        current_mode = wifi_get_current_mode();  // Use unified function instead of cached value
+        if (current_mode == WIFI_MODE_NULL && err != ESP_OK) {
             WLOG(TAG, "[%s] esp_wifi_get_mode failed: %s", __FUNCTION__, esp_err_to_name(err));
             return 0;
         }
@@ -513,11 +633,11 @@ int wifi_mode(uint8_t sta, uint8_t ap) {
     }
     
     // Set WiFi mode BEFORE configuring interfaces
-    wifi_context.s_wifi_mode = set_mode;
+   //  wifi_context.s_wifi_mode = set_mode;
     err = esp_wifi_set_mode(set_mode);
     if (err != ESP_OK) {
         ELOG(TAG, "[%s] esp_wifi_set_mode failed: %s", __FUNCTION__, esp_err_to_name(err));
-        wifi_context.s_wifi_mode = current_mode;
+        // wifi_context.s_wifi_mode = current_mode;
         return 0;
     }
     
@@ -578,9 +698,10 @@ void wifi_init() {
     }
 
     FUNC_ENTRY_ARGS(TAG, "register event handlers...");
-    // Only register if not already registered
     if (instance_wifi_id == 0) {
-        err = esp_event_handler_instance_register(WIFI_EVENT, ESP_EVENT_ANY_ID, &wifi_event_handler, 0, &instance_wifi_id);
+        err = esp_event_handler_instance_register(WIFI_EVENT, ESP_EVENT_ANY_ID,
+                                                &wifi_event_handler, 0,
+                                                &instance_wifi_id);
         if (err != ESP_OK) {
             ELOG(TAG, "esp_event_handler_instance_register WIFI_EVENT failed: %s",
                      esp_err_to_name(err));
@@ -589,12 +710,31 @@ void wifi_init() {
     }
     
     if (instance_ip_id == 0) {
-        err = esp_event_handler_instance_register(IP_EVENT, ESP_EVENT_ANY_ID, &wifi_event_handler, 0, &instance_ip_id);
+        err = esp_event_handler_instance_register(IP_EVENT, ESP_EVENT_ANY_ID,
+                                                &ip_event_handler, 0,
+                                                &instance_ip_id);
         if (err != ESP_OK) {
             ELOG(TAG, "esp_event_handler_instance_register IP_EVENT failed: %s", esp_err_to_name(err));
             goto end;
         }
     }
+    
+    // Create timer for deferred WiFi scan (prevents event loop deadlock)
+    if (!wifi_scan_defer_timer) {
+        const esp_timer_create_args_t timer_args = {
+            .callback = wifi_scan_defer_timer_callback,
+            .arg = NULL,
+            .dispatch_method = ESP_TIMER_TASK,
+            .name = "wifi_scan_defer"
+        };
+        err = esp_timer_create(&timer_args, &wifi_scan_defer_timer);
+        if (err != ESP_OK) {
+            ELOG(TAG, "Failed to create WiFi scan defer timer: %s", esp_err_to_name(err));
+            goto end;
+        }
+        DLOG(TAG, "WiFi scan defer timer created");
+    }
+    
     FUNC_ENTRY_ARGS(TAG, "create default sta and ap...");
     // Create netif handles only if they don't exist
     if(!s_sta_netif) {
@@ -722,7 +862,7 @@ int wifi_ap_start() {
     return err;
 }
 
-static int wifi_sta_config_init() {
+static int wifi_sta_config_init(void) {
     FUNC_ENTRY(TAG);
     const char *ssid = 0, *pwd=0;
     for(int i = 0; i < M_WIFI_STA_MAX; i++) {
@@ -749,7 +889,7 @@ static int wifi_sta_config_init() {
     return 0;
 }
 
-int wifi_sta_connect(uint16_t slot) {
+static int wifi_sta_connect(uint16_t slot) {
     FUNC_ENTRY(TAG);
     esp_err_t err = ESP_OK;
     if (slot >= M_WIFI_STA_MAX) {
@@ -798,11 +938,6 @@ int wifi_sta_connect(uint16_t slot) {
         goto end;
     }
     wifi_context.s_sta_num_connect = slot;
-    wifi_context.s_sta_connecting = true;
-    wifi_context.s_sta_connected = false;
-    wifi_context.s_sta_got_ip = false;
-    wifi_context.s_sta_connect_error = false;
-    wifi_context.s_sta_connect_not_found = false;
     FUNC_ENTRY_ARGS(TAG, " esp_wifi_connect %s", conf.sta.ssid);
     // Initialize SNTP but don't start until connection is confirmed
     initialize_sntp(wifi_context.offset);
@@ -824,31 +959,20 @@ int wifi_status() {
     if (!wifi_context.s_wifi_initialized) {
         return -2;
     }
-    if (wifi_context.s_ap_connection == 1)
-        return 2;
-    EventBits_t bits = xEventGroupWaitBits(wifi_context.s_wifi_event_group, WIFI_CONNECTED_BIT | WIFI_FAIL_BIT, pdTRUE, pdFALSE, 1000 / portTICK_PERIOD_MS);
+    // Non-blocking poll - do NOT wait, just check current state
+    // Blocking here delays display updates and can interfere with button processing
+    // EventBits_t bits = xEventGroupWaitBits(wifi_context.s_wifi_event_group, WIFI_AP_READY_BIT | WIFI_CONNECTED_BIT | WIFI_FAIL_BIT, pdTRUE, pdFALSE, 0);
     
     /* xEventGroupWaitBits() returns the bits before the call returned, hence we
      * can test which event actually happened. Using pdTRUE for xClearOnExit
      * to prevent stale bits from affecting future calls. */
-    
-    if (bits & WIFI_CONNECTED_BIT) {
-        // ILOG(TAG, "[%s] WIFI_CONNECTED_BIT %d\n", __FUNCTION__, wifi_context.s_ap_connection);
-        // ILOG(TAG, "connected to ap SSID:%s password:%s", ssid, password);
-        if (wifi_context.s_ap_connection == 1)
-            return 2;
-        return 1;
-    } else if (bits & WIFI_FAIL_BIT) {
-        // ILOG(TAG, "[%s] WIFI_FAIL_BIT\n", __FUNCTION__);
-        //  ILOG(TAG, "Failed to connect to SSID:%s, password:%s", ssid, password);
-        return 0;
-    } else {
-        // FUNC_ENTRY_ARGS(TAG, "UNEXPECTED EVENT\n");
-        //  ELOG(TAG, "UNEXPECTED EVENT");
-        return -1;
-    }
+    if(wifi_is_ap_ready()) return 2;
+    else if (wifi_is_sta_connected()) return 1;
+    else if (wifi_is_sta_connection_failed()) return 0;
+    else return -1;
 }
 
+#if defined(ENABLE_WAIT_FOR_STATE)
 int wifi_wait_for_connection(uint32_t timeout_ms) {
     if (!wifi_context.s_wifi_event_group) {
         ELOG(TAG, "[%s] WiFi event group not initialized", __FUNCTION__);
@@ -859,7 +983,6 @@ int wifi_wait_for_connection(uint32_t timeout_ms) {
                                            WIFI_CONNECTED_BIT | WIFI_FAIL_BIT, 
                                            pdFALSE, pdFALSE, 
                                            timeout_ms / portTICK_PERIOD_MS);
-    
     if (bits & WIFI_CONNECTED_BIT) {
         return ESP_OK;  // Connected successfully
     } else if (bits & WIFI_FAIL_BIT) {
@@ -886,47 +1009,28 @@ int wifi_wait_for_ap_ready(uint32_t timeout_ms) {
         return ESP_ERR_TIMEOUT;  // Timeout occurred
     }
 }
+#endif
 
-#define SCAN_LIST_SIZE 10
-static uint8_t scan_progress = 0;
 int wifi_sta_connect_scan() {
     FUNC_ENTRY(TAG);
     if(scan_progress)
         return 0;
     scan_progress = 1;
-    int err = 0;
-    uint16_t number = SCAN_LIST_SIZE;
-    wifi_ap_record_t ap_info[SCAN_LIST_SIZE] = {0};
-    uint16_t ap_count = 0;
-    memset(ap_info, 0, sizeof(ap_info));
-    err = esp_wifi_scan_start(NULL, true);
-    err = esp_wifi_scan_get_ap_num(&ap_count);
-    err = esp_wifi_scan_get_ap_records(&number, ap_info);
-    ILOG(TAG, "[%s] ap_count: %d", __func__, ap_count);
-    uint8_t k = M_WIFI_STA_MAX + 1;
-    if (ap_count > 0) {
-        wifi_sta_config_init();
-        uint16_t i, j;
-        for (i = 0; (i < SCAN_LIST_SIZE) && (i < ap_count); ++i) {
-            DLOG(TAG, "* %s\t\t%d", ap_info[i].ssid, ap_info[i].rssi);
-            for (j = 0; j < M_WIFI_STA_MAX; ++j) {
-                if (!wifi_context.stas[j].ssid[0])
-                    continue;
-                if (!strcmp((char*)&(ap_info[i].ssid[0]), &(wifi_context.stas[j].ssid[0]))) {
-                    FUNC_ENTRY_ARGSD(TAG, "found %s", wifi_context.stas[j].ssid);
-                    k = j;
-                    goto found;
-                }
-            }
-        }
+    
+    // CRITICAL FIX: Use non-blocking scan (false) instead of blocking (true)
+    // Blocking scans can take 3-5 seconds and prevent ESP timer dispatch task
+    // from firing button timer callbacks, causing 5-10 second button lag
+    esp_err_t err = esp_wifi_scan_start(NULL, false);
+    if (err != ESP_OK) {
+        ELOG(TAG, "WiFi scan start failed: %s", esp_err_to_name(err));
+        scan_progress = 0;
+        return err;
     }
-    found:
-    if (k < M_WIFI_STA_MAX)
-        err = wifi_sta_connect(k);
-    else if (ap_count > M_WIFI_STA_MAX - 1 || !ap_count)
-        err = wifi_sta_connect(0);
-    scan_progress = 0;
-    return err;
+
+    // With non-blocking scan, results will arrive via WIFI_EVENT_SCAN_DONE event
+    // which will process results and call wifi_sta_connect()
+    DLOG(TAG, "Non-blocking WiFi scan started");
+    return ESP_OK;
 }
 
 int wifi_set_config(const char *ap_ssid, const char *ap_password,
@@ -1048,13 +1152,58 @@ void wifi_set_mode_change_callbacks(const wifi_mode_change_callbacks_t* callback
     mode_change_pending = false;
 }
 
+// WiFi mode change task (runs at low priority to not block interrupts/display)
+static void wifi_mode_change_task(void* arg) {
+    FUNC_ENTRY_ARGSD(TAG, "WiFi mode change task started (low priority)");
+    
+    _wifi_mode_change_internal();
+    
+    // Clean up and delete task
+    wifi_mode_change_task_handle = NULL;
+    vTaskDelete(NULL);
+}
+
+// Public API: Start mode change task (non-blocking, returns immediately)
 int wifi_request_mode_change(void) {
     if (!wifi_context.s_wifi_initialized) {
-        WLOG(TAG, "[%s] WiFi mode change requested but WiFi not initialized", __func__);
+        WLOG(TAG, "WiFi mode change requested but WiFi not initialized");
         return -1;
     }
     
-    FUNC_ENTRY_ARGSD(TAG, "Processing WiFi mode change request");
+    // Check if mode change is already in progress
+    if (mode_change_in_progress || wifi_mode_change_task_handle) {
+        WLOG(TAG, "WiFi mode change already in progress, ignoring duplicate request");
+        return -2;  // Return special code indicating busy (not an error)
+    }
+    
+    FUNC_ENTRY_ARGSD(TAG, "Creating WiFi mode change task at low priority");
+    
+    // Create task at priority 3 (lower than display task 5, button task 15)
+    // This prevents blocking interrupts and high-priority tasks during NVS flash writes
+    BaseType_t ret = xTaskCreate(
+        wifi_mode_change_task,
+        "wifi_mode_chg",
+        3072,  // 3KB stack
+        NULL,
+        3,     // Priority 3 - low enough to not block critical operations
+        &wifi_mode_change_task_handle
+    );
+    
+    if (ret != pdPASS) {
+        ELOG(TAG, "Failed to create mode change task");
+        return -1;
+    }
+    
+    DLOG(TAG, "Mode change task created successfully, returning to caller");
+    return 0;
+}
+
+// Internal implementation: Execute mode change in event loop task context
+static void _wifi_mode_change_internal(void) {
+    FUNC_ENTRY_ARGSD(TAG, "Executing mode change in event loop task (non-blocking caller)");
+    
+    // Set in-progress flag (prevents duplicate requests during 8+ second WiFi scan)
+    mode_change_in_progress = true;
 
     // Call before-change callback (ADC suppression, config sync, etc.)
     if (s_mode_change_callbacks.before_mode_change && !mode_change_pending) {
@@ -1062,17 +1211,18 @@ int wifi_request_mode_change(void) {
         mode_change_pending = true;
     }
     
+    wifi_mode_t current_mode = wifi_get_current_mode();
 #if defined(CONFIG_IDF_TARGET_ESP32S3) || defined(ENABLE_WIFI_AP_STA)
-    if(wifi_context.s_wifi_mode == wifi_mode_apsta) {
+    if(current_mode == WIFI_MODE_APSTA) {
 #else
-    if(wifi_context.s_wifi_mode == wifi_mode_ap) {
+    if(current_mode == WIFI_MODE_AP) {
 #endif
         FUNC_ENTRY_ARGSD(TAG, "Switching to STA mode");
         wifi_mode(1, 0); // WiFi set station mode
     }
     else 
 #if defined(CONFIG_IDF_TARGET_ESP32S3) || defined(ENABLE_WIFI_AP_STA)
-    if(wifi_context.s_wifi_mode == wifi_mode_sta)
+    if(current_mode == WIFI_MODE_STA)
 #endif
     {
         FUNC_ENTRY_ARGSD(TAG, "Switching to AP mode");
@@ -1087,7 +1237,9 @@ int wifi_request_mode_change(void) {
 
     // Note: ADC events will be resumed by WiFi event handlers when mode change is complete
     
-    return 0;
+    // Clear in-progress flag (allows new mode change requests)
+    mode_change_in_progress = false;
+    DLOG(TAG, "Mode change execution complete in event loop task");
 }
 
 #endif // CONFIG_LOGGER_WIFI_ENABLED
