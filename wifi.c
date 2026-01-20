@@ -11,9 +11,12 @@
 #include "freertos/timers.h"
 #include "lwip/err.h"
 #include "lwip/ip_addr.h"
+#include "lwip/netif.h"
+#include "dhcpserver/dhcpserver.h"
 
 #include "esp_event.h"
 #include "esp_mac.h"
+#include "esp_netif.h"
 #include "esp_netif_sntp.h"
 #include "esp_system.h"
 #include "esp_heap_caps.h"
@@ -65,6 +68,9 @@ static esp_netif_t *s_ap_netif = 0;  // NOLINT(cppcoreguidelines-avoid-non-const
 
 static esp_event_handler_instance_t instance_wifi_id = 0;
 static esp_event_handler_instance_t instance_ip_id = 0;
+
+#if defined(CONFIG_LWIP_IPV4_NAPT)
+#endif
 
 // WiFi mode change task handle (for low-priority async mode change)
 static TaskHandle_t wifi_mode_change_task_handle = NULL;
@@ -744,6 +750,7 @@ void wifi_init() {
             goto end;
         }
     }
+    
     if(!s_ap_netif) {
         s_ap_netif = esp_netif_create_default_wifi_ap();
         if (!s_ap_netif) {
@@ -765,12 +772,27 @@ void wifi_init() {
     IP4_ADDR(&ipInfo.netmask, item->ipv4_netmask[0], item->ipv4_netmask[1], item->ipv4_netmask[2], item->ipv4_netmask[3]);
     esp_netif_dhcps_stop(s_ap_netif);
     esp_netif_set_ip_info(s_ap_netif, &ipInfo);
+    
 #if defined(CONFIG_LWIP_IPV4_NAPT)
-    // esp_netif_dns_info_t dns_info = {0};
-    // dns_info.ip.u_addr.ip4.addr = ipaddr_addr(CONFIG_MAIN_DNS_SERVER);
-    // dns_info.ip.type = IPADDR_TYPE_V4;
-    // esp_netif_set_dns_info(s_ap_netif, ESP_NETIF_DNS_MAIN, &dns_info);
+    // Enable DNS option in DHCP server offer
+    uint8_t dns_enable = 1;
+    err = esp_netif_dhcps_option(s_ap_netif, ESP_NETIF_OP_SET, ESP_NETIF_DOMAIN_NAME_SERVER, &dns_enable, sizeof(dns_enable));
+    if (err != ESP_OK) {
+        ELOG(TAG, "Failed to enable DHCP DNS option: %s", esp_err_to_name(err));
+    }
+    
+    // Set DNS info before starting DHCP server
+    esp_netif_dns_info_t dns_info;
+    dns_info.ip.u_addr.ip4.addr = ipaddr_addr(CONFIG_MAIN_DNS_SERVER);
+    dns_info.ip.type = IPADDR_TYPE_V4;
+    err = esp_netif_set_dns_info(s_ap_netif, ESP_NETIF_DNS_MAIN, &dns_info);
+    if (err != ESP_OK) {
+        ELOG(TAG, "Failed to set DHCP DNS server: %s", esp_err_to_name(err));
+    } else {
+        ILOG(TAG, "Set DHCP DNS server to: %s", CONFIG_MAIN_DNS_SERVER);
+    }
 #endif
+    
     esp_netif_dhcps_start(s_ap_netif);
     
     wifi_init_config_t cfg = WIFI_INIT_CONFIG_DEFAULT();
