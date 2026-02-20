@@ -24,6 +24,7 @@ enum {
 #define WIFI_AP_READY_BIT BIT3      // AP mode fully initialized
 #define WIFI_STA_CONNECTING_BIT BIT4 // STA is in the process of connecting
 #define WIFI_SCANNING_BIT BIT5      // WiFi scan in progress
+#define WIFI_AP_STARTED_BIT BIT6      // AP mode started
 
 const char * wifi_event_strings(int id);
 
